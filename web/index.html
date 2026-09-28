@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>映序 · 提示词工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+  <script src="/beauty.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="brand-mark">映</span><span>映序<small>PROMPT STUDIO</small></span></a>
+    <div class="project-switch">
+      <label for="project-select">当前项目</label>
+      <div class="project-picker">
+        <select id="project-select" aria-label="切换项目"></select>
+        <button class="icon danger" data-action="delete-project" title="删除当前项目" aria-label="删除当前项目">×</button>
+      </div>
+      <button class="subtle" data-action="new-project">＋ 新建项目</button>
+    </div>
+    <nav id="nav" aria-label="工作台导航">
+      <button data-page="overview" class="active"><span>01</span><em>制作总览</em></button>
+      <button data-page="sources"><span>02</span><em>来源素材</em></button>
+      <button data-page="stages"><span>03</span><em>创作流程</em></button>
+      <button data-page="assets"><span>04</span><em>角色与资产</em></button>
+      <button data-page="shots"><span>05</span><em>镜头工作台</em></button>
+      <button data-page="attempts"><span>06</span><em>试片与返修</em></button>
+      <button data-page="recipes"><span>07</span><em>配方与作品</em></button>
+      <button data-page="profiles"><span>08</span><em>工作流档案</em></button>
+      <button data-page="templates"><span>09</span><em>提示词模板</em></button>
+    </nav>
+    <div class="sidebar-footer">
+      <a class="subtle" id="usage-guide" href="/guide/drama" target="_blank" rel="noopener">使用说明书 ↗</a>
+      <button class="subtle" data-action="restore">恢复工程</button>
+      <button class="subtle" data-action="settings">模型连接设置 <span>↗</span></button>
+      <p><i></i> 本地保存 · 公开 AI 平台生成</p>
+    </div>
+  </aside>
+  <main>
+    <div class="workspace-tabs" role="tablist" aria-label="创作赛道">
+      <button id="tab-drama" role="tab" aria-selected="true" aria-controls="workspace-panel" data-action="switch-space" data-id="drama">AI 漫剧</button>
+      <button id="tab-beauty" role="tab" aria-selected="false" aria-controls="workspace-panel" data-action="switch-space" data-id="beauty">AI 美女</button>
+    </div>
+    <section id="workspace-panel" role="tabpanel" aria-labelledby="tab-drama">
+    <header class="topbar">
+      <div><span class="eyebrow">CREATOR WORKSPACE</span><h1 id="page-title">制作总览</h1></div>
+      <div class="toolbar" id="project-tools">
+        <label id="episode-control">当前集 <input id="episode" value="EP001" maxlength="40" aria-label="当前集"></label>
+        <button data-action="backup">工程备份</button>
+        <button class="primary" data-action="handoff">导出交接包 ↗</button>
+      </div>
+    </header>
+    <div id="content" aria-live="polite"><div class="empty">正在打开本地工作台…</div></div>
+    </section>
+    <footer class="main-footer">提示词、参考素材与生成结果，一起留下来。<span>映序 / v1.1</span></footer>
+  </main>
+  <dialog id="modal" aria-labelledby="modal-title"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input id="upload-input" type="file" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav">
+  <input id="beauty-upload-input" type="file" multiple hidden accept="image/*,video/mp4,video/webm,video/quicktime">
+  <input id="text-input" type="file" hidden accept=".txt,.md">
+  <input id="restore-input" type="file" hidden accept=".zip">
+</body>
+</html>
