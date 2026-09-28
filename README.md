@@ -117,7 +117,7 @@ node --check web/beauty.js
 
 可选浏览器检查需要安装 Google Chrome 和开发用的 Playwright（`pip install playwright`），运行 `python3 checks/browser.py`。它验证两套流程、Tab 隔离、基础图片词、外部结果粘贴、视觉提示词生成、图片/视频采用、收藏复用、工程恢复和移动端布局；不会接触个人工程或真实模型密钥。
 
-2026-09-28 已在 macOS、Python 3.9 和 Chrome 上通过上述核心及浏览器检查。真实 ComfyUI 出片和 Windows/Linux 实机启动尚未验证。GitHub Actions 配置了 macOS / Windows / Linux，Python 3.9 / 3.12 的检查矩阵；运行状态以仓库 Actions 结果为准。
+2026-09-28 已在 macOS、Python 3.9 和 Chrome 上通过上述核心及浏览器检查。真实 ComfyUI 出片和 Windows/Linux 实机启动尚未验证。
 
 ## 设计资料
 
@@ -128,3 +128,9 @@ node --check web/beauty.js
 - [原创三镜文本演示](examples/雨夜失物_EP001.md)
 
 本项目独立实现，参考公开工作流思路，没有复制第三方项目实现代码。
+
+## 开源许可证
+
+本项目采用 [MIT License](LICENSE)。可以使用、修改和分发本软件，包括商业用途；复制或发布时需保留版权及许可证声明。
+
+项目代码的 MIT 许可不替代素材授权。小说、漫画、人物肖像、音乐、模型和生成平台的使用仍需分别遵守其权利与服务条款。
