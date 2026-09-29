@@ -235,6 +235,10 @@ dialog::backdrop { background: #15241f77; backdrop-filter: blur(3px); }
 .shot-list button { width: 100%; text-align: left; overflow-wrap: anywhere; font-size: 11px; }
 .shot-list small { display: block; color: inherit; opacity: .75; }
 .version-notice { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 0; font-size: 11px; color: var(--muted); }
+.stale-notice { margin: 12px 0; }
+.stale-notice summary { cursor: pointer; font-weight: 600; }
+.stale-notice p { margin: 8px 0; }
+.stale-notice small { display: block; margin-top: 8px; }
 .queue-row { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); background: #fff; overflow-wrap: anywhere; }
 .queue-row p { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .queue-row button { flex-shrink: 0; }

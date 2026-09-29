@@ -245,6 +245,13 @@ function assetsView() {
     `<div class="grid">${entities("asset").map(e => {const c=version(e).content;const consistency=[c.lora_trigger&&`LoRA: ${c.lora_trigger}${c.lora_weight?` @ ${c.lora_weight}`:""}`,c.ip_adapter_notes&&"IP-Adapter 已记录"].filter(Boolean);return `<div class="card"><div class="number">${esc(c.type || "资产")} / ${esc(e.id)}</div><h3>${esc(e.title)}</h3><p class="excerpt">${esc(c.description)}</p><div class="row">${stateBadge(e)}${badge(c.media_ids?.length ? `已选 ${c.media_ids.length} 张参考` : "待提供参考图",c.media_ids?.length ? "ok":"warn")}${consistency.map(x=>badge(x,"ok")).join("")}</div><footer><small>${esc(c.naming_rule || `v${e.head}`)}</small>${btn("编辑 / 选图","edit-asset",e.id)}</footer></div>`;}).join("")}</div>`+
     (!entities("asset").length ? empty(drama?"先锁主角，不必一次做全剧":"建立第一位角色",drama?"在剧本分镜中同步角色草案，再为主角选择一张清楚参考图。":"也可以在拆解与选角阶段生成资产，再导入成卡片。") : "");
 }
+function shotIssueNotice(e, issues) {
+  const stale=issues.filter(x=>x.includes("已有不同的当前版本")), other=issues.filter(x=>!stale.includes(x));
+  return `${stale.length?`<div class="notice warn stale-notice"><div class="row"><strong>${stale.length} 项上游内容已更新</strong>${btn("用最新设定重新生成","shot-refresh",e.id,"primary")}</div>
+    <p>这条图片提示词仍基于旧人物、场景或剧情版本。要使用最新内容，请重新生成图片提示词。</p>
+    <details><summary>查看变更明细</summary><small>${esc(stale.join("；"))}</small></details></div>`:""}
+    ${other.length?`<div class="row">${badge(other.join("；"),"warn")}</div>`:""}`;
+}
 function shotsView() {
   const list = episodeEntities("shot"), drama=S.project.project.track==="drama";
   const total = list.reduce((n,e) => n + Number(version(e).content.duration),0);
@@ -253,7 +260,7 @@ function shotsView() {
     list.map((e,i) => {
       const c = version(e).content, issues = S.project.checks[e.id] || [], take = S.project.selected[e.id];
       const firstFrame=!!c.bindings?.first_frame;
-      return `<div class="shot-card"><div class="shot-num">${String(i+1).padStart(2,"0")}<small>${c.duration}s</small></div><div><span class="eyebrow">${esc(e.id)} · V${e.head}</span><h3>${esc(e.title)}</h3><p>${esc(c.start || "起点待补")} → ${esc(c.action || "动作待补")} → ${esc(c.end || "落点待补")}</p><p>${esc(c.camera || "构图待补")} · ${esc(c.source || "来源待补")}</p>${drama&&c.image_prompt?`<p class="prompt-preview">${esc(brief(c.image_prompt))}</p>`:""}<div class="row">${issues.length ? badge(issues.join("；"),"warn") : badge("可投产","ok")}${drama?badge(firstFrame?"已选分镜图":"待选分镜图",firstFrame?"ok":"warn"):badge(take ? "已选片" : "未选片",take ? "ok":"")}${c.controlnet?badge("ControlNet"):""}</div></div><div class="shot-actions">${btn(drama?"编辑 / 绑定图片":"编辑提示词","edit-shot",e.id)}${btn(drama?"复制图片词":"复制视频词",drama?"copy-image":"copy-video",e.id)}${drama?"":btn("回填试片","new-attempt",e.id)}</div></div>`;
+      return `<div class="shot-card"><div class="shot-num">${String(i+1).padStart(2,"0")}<small>${c.duration}s</small></div><div><span class="eyebrow">${esc(e.id)} · V${e.head}</span><h3>${esc(e.title)}</h3><p>${esc(c.start || "起点待补")} → ${esc(c.action || "动作待补")} → ${esc(c.end || "落点待补")}</p><p>${esc(c.camera || "构图待补")} · ${esc(c.source || "来源待补")}</p>${drama&&c.image_prompt?`<p class="prompt-preview">${esc(brief(c.image_prompt))}</p>`:""}${shotIssueNotice(e,issues)}<div class="row">${!issues.length?badge("可投产","ok"):""}${drama?badge(firstFrame?"已选分镜图":"待选分镜图",firstFrame?"ok":"warn"):badge(take ? "已选片" : "未选片",take ? "ok":"")}${c.controlnet?badge("ControlNet"):""}</div></div><div class="shot-actions">${btn(drama?"编辑 / 绑定图片":"编辑提示词","edit-shot",e.id)}${btn(drama?"复制图片词":"复制视频词",drama?"copy-image":"copy-video",e.id)}${drama?"":btn("回填试片","new-attempt",e.id)}</div></div>`;
     }).join("") + (!list.length ? empty(drama?"先生成 JSON 分镜":"把故事拆成可以生成的镜头",drama?"进入「剧本与分镜」，生成并同步镜头后再批量出图。":"完成分镜阶段后导入镜头，也可以直接手工创建。",drama?btn("开始剧本分镜","stage","M01","primary"):"") : "");
 }
 function attemptsView() {

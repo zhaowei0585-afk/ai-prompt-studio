@@ -306,6 +306,7 @@ Object.assign(actions,{
   "flow-step":id=>flowStep(Number(id)),
   "flow-next":()=>flowStep(P.step+1),
   "script-source":id=>editor("source","",{source_type:id,title:{novel:"小说素材",comic:"漫画素材",joke:"段子素材"}[id] || "外部素材"}),
+  "shot-refresh":async id=>{P.focus=id;P.shot=id;await flowStep(2,true);$$(".stage-workspace").forEach(el=>{const outer=el.closest("details");if(outer)outer.open=true;const inner=$("details",el);if(inner)inner.open=true;});$("#context-form")?.scrollIntoView();},
   "flow-fix":async id=>{const [step,shot]=id.split("|");closeModal(true);P.shot=shot;P.focus=shot;await flowStep(Number(step),true);},
   "flow-accept":async id=>{if(S.dirty)throw new Error("先保存当前编辑，再设置当前版本");await acceptRecord(entity(id));},
   "flow-shot":id=>{if(!canLeave())return;S.dirty=false;P.promptDraft=null;P.voiceDraft=null;P.shot=id;P.focus=id;P.index=0;render();},

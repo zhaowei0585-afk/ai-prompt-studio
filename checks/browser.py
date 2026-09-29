@@ -204,6 +204,19 @@ def main():
                     assert len(json.loads(archive.read("manifest.json"))["shots"]) == 30
                     assert "subtitles.srt" in archive.namelist()
                 print("PASS 30 video selections, real video preview, voice stage and scoped delivery", flush=True)
+                app.store.save(pid, {"id": script["id"], "kind": "stage", "title": "当前剧本", "episode": "EP001",
+                    "base_revision": 1, "content": {"text": "原创人物在窗边读完信。"}, "set_current": True,
+                    "expected_accepted": 1})
+                page.reload()
+                page.wait_for_load_state("networkidle")
+                click("flow-step", "1")
+                page.get_by_text("镜头顺序、人物与场景", exact=True).click()
+                expect(page.locator(".stale-notice").first).to_contain_text("1 项上游内容已更新")
+                expect(page.locator('[data-action="shot-refresh"]:visible').first).to_be_visible()
+                click("shot-refresh")
+                expect(page.locator('.flow-nav [aria-current="step"]')).to_contain_text("文字生图")
+                expect(page.locator("#context-form")).to_be_visible()
+                print("PASS compact stale warning and direct latest-content route", flush=True)
                 # New single-work line: shared person -> topic -> prompt-to-video -> export.
                 click("switch-space", "beauty")
                 click("new-project")
