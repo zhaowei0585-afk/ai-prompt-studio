@@ -30,6 +30,7 @@ function beautyDraft() {
     const character=v?.deps.find(d=>entity(d.id)?.kind==="asset" && version(entity(d.id),d.revision)?.content.type==="角色");
     B.draft={...c,title:e?.title || "",mode:c.mode || (beautyModes[S.project.project.track]?S.project.project.track:"daily"),
       character:character?`${character.id}|${character.revision}`:"",idea:c.idea || c.start || "",
+      action:c.action || "",dialogue:c.dialogue || "",
       platform:c.platform || "",format:c.format || S.project.project.format || "9:16",
       duration:c.duration || Math.min(600,Number(S.project.project.duration)||5),input_media:c.input_media || [],reference_notes:c.reference_notes || "",
       image_prompt:c.image_prompt || "",video_prompt:c.video_prompt || "",bindings:c.bindings || {}};
@@ -239,6 +240,7 @@ async function beautySaveVersion(setCurrent = false, draft = null) {
   if(B.repair)deps.push({id:B.repair.id,revision:B.repair.head,frozen:true});
   deps.push(...B.extraDeps);
   const content={...old?.content,workflow:"beauty",mode:d.mode,idea:d.idea,platform:d.platform,format:d.format,
+    action:d.action || "",dialogue:d.dialogue || "",
     duration:d.duration,character_id:characterId || "",input_media:d.input_media,reference_notes:d.reference_notes,repair_note:d.repair_note || "",
     generation_route:d.generation_route || "prompt",reference_support:d.reference_support || "unknown",
     image_prompt:d.image_prompt,video_prompt:d.video_prompt,bindings:d.bindings || {}};
@@ -302,7 +304,8 @@ function beautyBasic() {
   const [id,rev]=(d.character || "").split("|"), char=version(entity(id),Number(rev))?.content;
   const character=char?`以提供的人物参考图为身份依据，保持面部特征、发型与体型。${char.description || ""}`:"一位成年原创虚拟女性，面部特征自然。";
   const mode={daily:"生活抓拍感，姿态放松，动作开始前的静态时刻。",outfit:"清楚展示服装版型、领口、袖长与配饰，服装细节以提供的参考为准。",dance:"单人全身构图，双手与双脚完整入画，预留动作空间，背景简洁。"}[d.mode];
-  d.image_prompt=[character,d.idea,mode,d.reference_notes,`${d.format} 构图，自然光，真实皮肤与衣物材质，主体清晰。`].filter(Boolean).join("\n");
+  d.image_prompt=[character,d.idea,d.action&&`简易剧本：${d.action}`,d.dialogue&&`台词 / 旁白：${d.dialogue}`,
+    mode,d.reference_notes,`${d.format} 构图，自然光，真实皮肤与衣物材质，主体清晰。`].filter(Boolean).join("\n");
   beautyClearVideo();S.dirty=true;render();toast("已组合基础图片词，尚未调用 AI");
 }
 async function beautyCompose(target) {
@@ -319,13 +322,17 @@ async function beautyCompose(target) {
   }else{
     const e=await beautyEnsureSaved(), image=beautyTake(e.id);
     if(target==="video"&&d.generation_route==="i2v"&&!image)throw new Error("图生视频路线请先选定当前图片");
+    if(target==="video"&&d.generation_route==="reference"&&!d.input_media.some(id=>beautyMedia(id)?.mime.startsWith("video/")))
+      throw new Error("参考视频路线请先选择实际动作视频");
+    if(target==="video"&&d.generation_route==="reference"&&!d.reference_notes.trim())
+      throw new Error("请先按时间段填写人工观察到的动作");
     const charId=d.character?.split("|")[0];
     const contextIds=[e.id];
     const char=charId?version(entity(charId),Number(d.character.split("|")[1])):null;
     const candidates=[...(char?.content.media_ids || []),...d.input_media,...(target==="video"&&image?image.version.content.result_media:[])];
     const images=[...new Set(candidates)].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
     input={stage:"B04",episode:e.id,scope:target,source_ids:[],context_ids:contextIds,
-      media_ids:d.vision?images:[],extra:`只为这一条作品生成${target==="video"?"视频":"图片"}提示词。\n主题：${beautyModes[d.mode]}；平台：${d.platform || "未知，通用中文"}。\n人物实际引用版本：${d.character || "未选人物"}；设定：${char?JSON.stringify(char.content):"按想法设计成年原创人物"}。\n本次要求：${d.repair_note || "依据想法完成"}。\n${target==="video"?`生成路线：${d.generation_route || "prompt"}。目标时长 ${d.duration} 秒。\n${image?`实际当前图片记录：${JSON.stringify({ref:image.ref,content:image.version.content})}`:"直接根据主题写动作与镜头描述，无已选首帧。"}\n参考视频只依据人工标注的动作与时间范围，不声称看过连续视频。`:"仅描述静态画面，不生成视频词。"}\n${B.repair?`返修按用户描述：${version(B.repair).content.feedback || ""}\n实际用词：${version(B.repair).content.actual_prompt || ""}`:""}`};
+      media_ids:d.vision?images:[],extra:`只为这一条作品生成${target==="video"?"视频":"图片"}提示词。\n主题：${beautyModes[d.mode]}；平台：${d.platform || "未知，通用中文"}。\n人物实际引用版本：${d.character || "未选人物"}；设定：${char?JSON.stringify(char.content):"按想法设计成年原创人物"}。\n简易剧本：${d.action || "未填写"}。\n台词 / 旁白：${d.dialogue || "未填写"}。\n本次要求：${d.repair_note || "依据想法完成"}。\n${target==="video"?`生成路线：${d.generation_route || "prompt"}。目标时长 ${d.duration} 秒。\n${image?`实际当前图片记录：${JSON.stringify({ref:image.ref,content:image.version.content})}`:"直接根据主题写动作与镜头描述，无已选首帧。"}\n参考动作时间线（人工标注）：${d.reference_notes || "未填写"}。\n参考视频只依据人工标注的动作与时间范围，不声称看过连续视频。`:"图片必须从简易剧本中选择一个明确的静态时刻，并保留与台词相符的情绪、场景和道具；不生成视频词。"}\n${B.repair?`返修按用户描述：${version(B.repair).content.feedback || ""}\n实际用词：${version(B.repair).content.actual_prompt || ""}`:""}`};
     pending={project:S.project.project.id,id:e.id,revision:e.head,input,target,image:image?.ref,
       firstFrame:image?.version.content.result_media[0],repairNote:d.repair_note || "",vision:!!d.vision};
   }
@@ -529,7 +536,7 @@ Object.assign(actions,{
 document.addEventListener("input",event=>{
   if(!event.target.closest("#beauty-form"))return;
   beautyRead();S.dirty=true;
-  if(["character","mode","idea","input_media","reference_notes","format","image_prompt"].includes(event.target.name))beautyClearVideo();
+  if(["character","mode","idea","action","dialogue","input_media","reference_notes","format","image_prompt"].includes(event.target.name))beautyClearVideo();
   if(event.target.name==="video_prompt" && !B.draft.video_source){
     const image=beautyTake(B.id);
     if(image){B.draft.video_source=image.ref;B.draft.bindings={first_frame:image.version.content.result_media[0]};}

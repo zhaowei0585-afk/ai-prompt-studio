@@ -879,6 +879,8 @@ def production_status(state, episode="", work=""):
                 issue(2, "参考视频路线需要实际参考视频", shot)
             if c.get("generation_route") == "reference" and c.get("reference_support") != "supported":
                 issue(2, "请确认目标平台支持参考视频输入", shot)
+            if c.get("generation_route") == "reference" and not c.get("reference_notes", "").strip():
+                issue(2, "请填写人工观察的动作时间线", shot)
             if c.get("generation_route") == "i2v" and not c.get("bindings", {}).get("first_frame"):
                 issue(2, "图生视频路线需要当前首帧", shot)
         for medium, chosen, step in (("image", images, 2), ("video", videos, 3 if drama else 2)):
@@ -899,7 +901,7 @@ def production_status(state, episode="", work=""):
             origin = find_version(state, take.get("reviewed_against") or take["prompt_ref"])[1]
             fields = [medium+"_prompt", "character_id", "input_media", "idea", "format"]
             if medium == "video":
-                fields += ["duration", "bindings", "generation_route"]
+                fields += ["duration", "bindings", "generation_route", "action", "dialogue", "reference_notes"]
             if any(origin["content"].get(k) != c.get(k) for k in fields) or stale_reasons(state, origin):
                 issue(step, shot["title"] + " 结果对应旧设定或旧提示词，请重新判片复核", shot)
             if medium == "video" and c.get("generation_route", "i2v") == "i2v" and images.get(shot["id"]):

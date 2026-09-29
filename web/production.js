@@ -146,6 +146,8 @@ function beautyFlowView(){
   }else if(P.step===1){
     body=`<form id="beauty-form" class="card"><div class="theme-cards">${Object.entries(beautyModes).map(([id,title])=>btn(title,"beauty-theme",id,d.mode===id?"active":"")).join("")}</div>
       ${field("作品名称","title",d.title)}${area("主题想法","idea",d.idea,"例如：咖啡店窗边，白色毛衣，自然回眸。",4)}
+      ${area("简易剧本（场景与动作）","action",d.action,"例如：人物坐在窗边读信，听见门响后抬眼，最后看向镜头。后续图片词和视频词都会引用。",5)}
+      ${area("台词 / 旁白（可选）","dialogue",d.dialogue,"例如：今天，也许会有好消息。日常和穿搭内容可直接在这里修改。",3)}
       <div class="form-grid">${field("生成平台 / 模型","platform",d.platform)}${select("画幅","format",[["9:16","9:16"],["16:9","16:9"],["1:1","1:1"]],d.format)}
       ${field("时长 / 秒","duration",d.duration,"number","","min=1 max=600")}</div></form>`;
   }else if(P.step===2){
@@ -154,7 +156,8 @@ function beautyFlowView(){
       ${route==="reference"?`${select("目标平台的参考视频能力","reference_support",[["unknown","尚未确认"],["supported","支持参考视频驱动"],["unsupported","不支持"]],d.reference_support)}
         <div class="notice ${d.reference_support==="supported"?"":"warn"}">先确认生成平台支持参考视频输入。工作台用人工标注与关键帧整理提示词。</div>`:""}
       <details ${route==="reference"?"open":""}><summary>参考视频、图片与动作标注</summary>${mediaChecks("input_media",d.input_media)}
-        ${btn("导入参考素材","beauty-upload","reference")}${area("动作、节奏与时间范围","reference_notes",d.reference_notes,"记录实际观察到的时间点；可从下方视频入口提取关键帧。",3)}
+        ${btn("导入参考素材","beauty-upload","reference")}${area(route==="reference"?"动作时间线（每行一段）":"参考内容 / 时间范围","reference_notes",d.reference_notes,route==="reference"?"例如：00:00-00:03 | 起势并抬起右手。只记录实际观察到的动作；可从下方视频入口提取关键帧。":"填写参考内容和实际观察到的时间范围。",5)}
+        ${route==="reference"?'<small>参考视频原文件不会发送给模型；生成词只使用人工动作时间线和明确选择的关键帧。</small>':""}
         <div class="row">${d.input_media.filter(id=>beautyMedia(id)?.mime.startsWith("video/")).map(id=>btn("视频抽帧："+beautyMedia(id).name,"capture",id)).join("")}</div></details>
       ${route==="i2v"?`<details open><summary>首帧准备（在本节点完成）</summary>${image?mediaCard(beautyMedia(image.version.content.result_media[0]),true):'<p>还没有当前首帧。先写图片词，回填并选定图片。</p>'}
         ${area("图片提示词","image_prompt",d.image_prompt,"",4)}<div class="row">${btn("组合基础图片词","beauty-basic")}${btn("AI 优化图片词","beauty-compose","image")}${btn("复制当前图片词","beauty-copy","image")}${btn("查看图片候选","beauty-images")}</div></details>`:""}

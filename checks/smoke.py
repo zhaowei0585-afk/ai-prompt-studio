@@ -262,6 +262,7 @@ def main():
                 "set_current":True,"expected_accepted":None})
             work = request(bp+"/save", {"id":"WORK-1","kind":"shot","title":"咖啡店","episode":"WORK-1",
                 "content":{"workflow":"beauty","mode":"daily","idea":"咖啡店窗边","duration":5,
+                           "action":"人物读信后抬眼","dialogue":"今天会有好消息。",
                            "character_id":character["id"],"image_prompt":"白色毛衣，自然光","video_prompt":"","input_media":[],"bindings":{}},
                 "deps":[{"id":character["id"],"revision":character["revision"]}]})
             request(bp+"/accept", {"id":work["id"],"revision":1,"expected_accepted":None})
@@ -280,6 +281,7 @@ def main():
             bpreview = request(bp+"/compose", binput)
             bresult = request(bp+"/generate", {"input":binput,"preview_hash":bpreview["hash"]})
             assert not bresult["error"] and bresult["result"]["video_prompt"]
+            assert "人物读信后抬眼" in bpreview["prompt"] and "今天会有好消息。" in bpreview["prompt"]
             assert '"shots":[]' not in bpreview["prompt"]
             video_work = request(bp+"/save", {"id":"WORK-1","kind":"shot","title":"咖啡店","episode":"WORK-1","base_revision":1,
                 "content":dict(work["content"],video_prompt=bresult["result"]["video_prompt"],
