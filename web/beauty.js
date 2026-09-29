@@ -95,7 +95,7 @@ function defaultCharacterPrompt(d,c={},picked={}) {
     bodyTypeText(data)&&`身材 Type：${bodyTypeText(data)}`,
     data.body_notes&&`身材补充：${data.body_notes}`,
     data.face_notes&&`面部与表情：${data.face_notes}`,
-    `穿搭生成方式：${{merge:"把人物三视图与穿搭参考图合成新造型",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[data.outfit_strategy || "merge"]}`,
+    `穿搭生成方式：${{merge:"穿搭参考图直接换装：人物三视图只保留身份、脸和身材，服装完全以穿搭参考图为准，禁止混合两套穿搭",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[data.outfit_strategy || "merge"]}`,
     data.outfit_notes&&`穿搭要求：${data.outfit_notes}`,
     (d.character_reference_media_ids || c.reference_media_ids || []).length&&"人物参考图已提供，身份和脸部以参考图为准。",
     (d.outfit_media_ids || c.outfit_media_ids || []).length&&"穿搭参考图已提供，服装版型、材质和配色以参考图为准。",
@@ -119,7 +119,7 @@ function beautyCharacterView() {
       <section>${area("稳定身份特征","character_description",text("character_description",c.description || ""),"脸型、发型、年龄感、气质、不可漂移的身份特征。",4)}</section>
       <section class="full"><p class="field-title">身材 Type（部位维度）</p>${bodyTypeControls(d,c)}${area("身材补充","body_notes",text("body_notes"),"比例、姿态、肩颈、腰臀、腿型等补充约束。",3)}</section>
       <section>${area("面部 / 表情微调","face_notes",text("face_notes"),"表情、眼神、妆容、脸部细节；和稳定身份冲突时以身份为准。",4)}</section>
-      <section>${select("穿搭生成方式","outfit_strategy",[["merge","人物三视图 + 穿搭参考图合成"],["keep","沿用当前三视图穿搭"],["text","只按文字描述"]],text("outfit_strategy",c.outfit_media_ids?.length?"merge":"keep"))}${area("穿搭微调","outfit_notes",text("outfit_notes"),"服装版型、材质、领口、袖长、配饰；有参考图时以参考图为准。",4)}</section>
+      <section>${select("穿搭生成方式","outfit_strategy",[["merge","穿搭参考图直接换装"],["keep","沿用当前三视图穿搭"],["text","只按文字描述"]],text("outfit_strategy",c.outfit_media_ids?.length?"merge":"keep"))}${area("穿搭微调","outfit_notes",text("outfit_notes"),"服装版型、材质、领口、袖长、配饰；有参考图时以参考图为准。",4)}</section>
     </div>
     <details open><summary>三视图与参考素材</summary>
       <label class="field">已确认三视图 / 角色结果图</label>${mediaChecks("character_media_ids",viewIds,"image/")}
@@ -308,7 +308,7 @@ async function beautyCompose(target) {
   if(target==="character"){
     const images=[...new Set([...(d.character_reference_media_ids || []),...(d.outfit_media_ids || []),...(d.character_media_ids || [])])].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
     input={stage:"B04",episode:B.id || "__character__",scope:"image",source_ids:[],context_ids:[],media_ids:d.vision?images:[],
-      extra:`只生成角色三视图 image_prompt，不生成视频词。\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材 Type：${bodyTypeText(d) || "默认"}。\n身材补充：${d.body_notes || "无"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭生成方式：${{merge:"把人物三视图与穿搭参考图合成新造型",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
+      extra:`只生成角色三视图 image_prompt，不生成视频词。\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材 Type：${bodyTypeText(d) || "默认"}。\n身材补充：${d.body_notes || "无"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭生成方式：${{merge:"穿搭参考图直接换装：人物三视图只保留身份、脸和身材，服装完全以穿搭参考图为准，禁止混合两套穿搭",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
     pending={project:S.project.project.id,id:B.id,revision:beautyWork()?.head || 0,input,target,vision:!!d.vision};
   }else{
     const e=await beautyEnsureSaved(), image=beautyTake(e.id);
