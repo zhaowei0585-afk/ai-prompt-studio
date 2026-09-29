@@ -3,6 +3,9 @@
 // Reuse the notebook's asset/shot/attempt versions; the UI works with people and single works.
 const B = {id:"", draft:null, pending:null, extraDeps:[], repair:null, historyDeps:null};
 const beautyModes = {daily:"日常",outfit:"穿搭",dance:"舞蹈"};
+const bodyTypeFields = [["body_height","身高"],["body_shoulders","肩部"],["body_chest","胸部"],["body_waist","腰部"],["body_hips","臀部"],["body_legs","腿部"],["body_arms","手臂"]];
+const bodyTypeOptions = [["default","默认"],["small","偏小"],["medium","适中"],["large","偏大"],["extra","更大"]];
+const bodyTypeText = d => bodyTypeFields.map(([key,label])=>d[key]&&d[key]!=="default"?`${label}${Object.fromEntries(bodyTypeOptions)[d[key]]}`:"").filter(Boolean).join("，");
 const beautyWork = () => entity(B.id);
 const beautyCharacters = () => entities("asset").filter(e=>version(e).content.type==="角色");
 const beautyMedia = id => S.project.media.find(m=>m.id===id);
@@ -66,6 +69,9 @@ function beautyCharacterRef() {
   const [id,rev]=(beautyDraft().character || "").split("|"), e=entity(id);
   return {id, revision:Number(rev), entity:e, version:e?version(e,Number(rev) || e.accepted || e.head):null};
 }
+function bodyTypeControls(d,c) {
+  return `<div class="form-grid">${bodyTypeFields.map(([key,label])=>select(label,key,bodyTypeOptions,d[key] ?? c[key] ?? "default")).join("")}</div>`;
+}
 function beautyCharacterView() {
   const d=beautyDraft(), picked=beautyCharacterRef(), c=picked.version?.content || {};
   const has=(key)=>Object.prototype.hasOwnProperty.call(d,key);
@@ -82,9 +88,9 @@ function beautyCharacterView() {
     <div class="row">${badge(confirmed?"三视图已确认":"等待确认三视图",confirmed?"ok":"warn")}${picked.entity?stateBadge(picked.entity):""}${btn("打开共享人物库","workspace-library","asset")}</div>
     <div class="form-grid">
       <section>${area("稳定身份特征","character_description",text("character_description",c.description || ""),"脸型、发型、年龄感、气质、不可漂移的身份特征。",4)}</section>
-      <section>${area("身材微调","body_notes",text("body_notes"),"体型、比例、姿态、肩颈、腰臀、腿型等本地生成约束。",4)}</section>
+      <section class="full"><p class="field-title">身材 Type（部位大小）</p>${bodyTypeControls(d,c)}${area("身材补充","body_notes",text("body_notes"),"比例、姿态、肩颈、腰臀、腿型等补充约束。",3)}</section>
       <section>${area("面部 / 表情微调","face_notes",text("face_notes"),"表情、眼神、妆容、脸部细节；和稳定身份冲突时以身份为准。",4)}</section>
-      <section>${area("穿搭微调","outfit_notes",text("outfit_notes"),"服装版型、材质、领口、袖长、配饰；有参考图时以参考图为准。",4)}</section>
+      <section>${select("穿搭生成方式","outfit_strategy",[["merge","人物三视图 + 穿搭参考图合成"],["keep","沿用当前三视图穿搭"],["text","只按文字描述"]],text("outfit_strategy",c.outfit_media_ids?.length?"merge":"keep"))}${area("穿搭微调","outfit_notes",text("outfit_notes"),"服装版型、材质、领口、袖长、配饰；有参考图时以参考图为准。",4)}</section>
     </div>
     <details open><summary>三视图与参考素材</summary>
       <label class="field">已确认三视图 / 角色结果图</label>${mediaChecks("character_media_ids",viewIds,"image/")}
@@ -233,8 +239,10 @@ function beautyCharacterBasic() {
     `为成年原创虚拟女性“${title}”生成同一身份的角色三视图。`,
     "输出正面、侧面、背面，白底或干净棚拍背景，五官、发型、身材比例和服装保持一致。",
     d.character_description&&`稳定身份特征：${d.character_description}`,
+    bodyTypeText(d)&&`身材 Type：${bodyTypeText(d)}`,
     d.body_notes&&`身材微调：${d.body_notes}`,
     d.face_notes&&`面部与表情：${d.face_notes}`,
+    `穿搭生成方式：${{merge:"把人物三视图与穿搭参考图合成新造型",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}`,
     d.outfit_notes&&`穿搭要求：${d.outfit_notes}`,
     d.character_reference_media_ids?.length&&"人物参考图已提供，身份和脸部以参考图为准。",
     d.outfit_media_ids?.length&&"穿搭参考图已提供，服装版型、材质和配色以参考图为准。",
@@ -248,14 +256,17 @@ async function beautySaveCharacter(setCurrent=false) {
   if(!title)throw new Error("请填写角色名称");
   const content={...v?.content,type:"角色",description:d.character_description || "",image_prompt:d.character_prompt || "",
     body_notes:d.body_notes || "",face_notes:d.face_notes || "",outfit_notes:d.outfit_notes || "",
+    outfit_strategy:d.outfit_strategy || "merge",
     reference_media_ids:d.character_reference_media_ids || [],outfit_media_ids:d.outfit_media_ids || [],
     media_ids:d.character_media_ids?.length?d.character_media_ids:(v?.content.media_ids || [])};
+  for(const [key] of bodyTypeFields)content[key]=d[key] || "default";
   if(setCurrent&&!content.media_ids.length)throw new Error("请先导入并选择三视图结果图");
   const saved=await projectAPI("save",{id:e?.id || "CHAR-"+crypto.randomUUID().replaceAll("-",""),kind:"asset",title,
     base_revision:e?.head || 0,content,deps:v?.deps || [],set_current:setCurrent,expected_accepted:e?.accepted ?? null});
   d.character=`${saved.id}|${saved.revision}`;
   d.character_title=title;d.character_description=content.description;d.character_prompt=content.image_prompt;
-  d.body_notes=content.body_notes;d.face_notes=content.face_notes;d.outfit_notes=content.outfit_notes;
+  d.body_notes=content.body_notes;d.face_notes=content.face_notes;d.outfit_notes=content.outfit_notes;d.outfit_strategy=content.outfit_strategy;
+  for(const [key] of bodyTypeFields)d[key]=content[key];
   d.character_reference_media_ids=content.reference_media_ids;d.outfit_media_ids=content.outfit_media_ids;d.character_media_ids=content.media_ids;
   if(setCurrent){
     await beautySaveVersion(true,d);
@@ -281,7 +292,7 @@ async function beautyCompose(target) {
   if(target==="character"){
     const images=[...new Set([...(d.character_reference_media_ids || []),...(d.outfit_media_ids || []),...(d.character_media_ids || [])])].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
     input={stage:"B04",episode:B.id || "__character__",scope:"image",source_ids:[],context_ids:[],media_ids:d.vision?images:[],
-      extra:`只生成角色三视图 image_prompt，不生成视频词。\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材微调：${d.body_notes || "按用户输入自由处理"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
+      extra:`只生成角色三视图 image_prompt，不生成视频词。\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材 Type：${bodyTypeText(d) || "默认"}。\n身材补充：${d.body_notes || "无"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭生成方式：${{merge:"把人物三视图与穿搭参考图合成新造型",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
     pending={project:S.project.project.id,id:B.id,revision:beautyWork()?.head || 0,input,target,vision:!!d.vision};
   }else{
     const e=await beautyEnsureSaved(), image=beautyTake(e.id);
