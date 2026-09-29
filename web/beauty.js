@@ -9,7 +9,7 @@ const bodyTypeFields = [
   ["body_chest","胸部",[["default","默认"],["small","偏小"],["medium","适中"],["large","偏大"],["extra","更大"]]],
   ["body_waist","腰部",[["default","默认"],["natural","自然腰线"],["slim","细腰"],["defined","收腰明显"],["soft","柔和腰线"]]],
   ["body_hips","臀部",[["default","默认"],["small","偏小"],["medium","适中"],["large","偏大"],["extra","更大"]]],
-  ["body_legs","腿部",[["default","默认"],["balanced","匀称"],["long","长腿比例"],["straight","直腿线条"],["toned","紧致线条"]]],
+  ["body_legs","腿部",[["default","默认"],["goblet","酒杯腿"],["fleshy","肉腿"],["comic","漫画腿"],["long","大长腿"]]],
   ["body_arms","手臂",[["default","默认"],["slender","纤细"],["natural","自然"],["toned","紧致"],["soft","柔和"]]]
 ];
 const bodyOptionText = (key,value) => (bodyTypeFields.find(([id])=>id===key)?.[2].find(([id])=>id===value) || [value,value])[1];

@@ -255,7 +255,7 @@ def main():
                 expect(page.locator('[name="character_prompt"]')).to_contain_text("正面、侧面、背面")
                 expect(page.locator('[name="character_prompt"]')).to_contain_text("胸部偏大")
                 expect(page.locator('[name="character_prompt"]')).to_contain_text("腰部细腰")
-                expect(page.locator('[name="character_prompt"]')).to_contain_text("腿部长腿比例")
+                expect(page.locator('[name="character_prompt"]')).to_contain_text("腿部大长腿")
                 expect(page.locator('[name="character_prompt"]')).to_contain_text("穿搭参考图直接换装")
                 expect(page.locator('[name="character_prompt"]')).to_contain_text("禁止混合两套穿搭")
                 click("flow-next")
