@@ -243,6 +243,7 @@ def main():
                 page.locator('[name="character"]').select_option(index=1)
                 expect(page.locator("#beauty-form")).to_contain_text("身材 Type")
                 expect(page.locator("#beauty-form")).to_contain_text("穿搭参考图")
+                expect(page.locator('[name="character_prompt"]')).to_contain_text("正面、侧面、背面")
                 expect(page.locator('[name="outfit_strategy"]')).to_have_value("keep")
                 page.locator('[name="body_chest"]').select_option("large")
                 page.locator('[name="body_waist"]').select_option("slim")

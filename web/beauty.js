@@ -32,8 +32,7 @@ function beautyDraft() {
       character:character?`${character.id}|${character.revision}`:"",idea:c.idea || c.start || "",
       platform:c.platform || "",format:c.format || S.project.project.format || "9:16",
       duration:c.duration || Math.min(600,Number(S.project.project.duration)||5),input_media:c.input_media || [],reference_notes:c.reference_notes || "",
-      image_prompt:c.image_prompt || "",video_prompt:c.video_prompt || "",bindings:c.bindings || {},
-      character_media_ids:[],character_reference_media_ids:[],outfit_media_ids:[]};
+      image_prompt:c.image_prompt || "",video_prompt:c.video_prompt || "",bindings:c.bindings || {}};
   }
   return B.draft;
 }
@@ -80,11 +79,33 @@ function beautyCharacterRef() {
 function bodyTypeControls(d,c) {
   return `<div class="form-grid">${bodyTypeFields.map(([key,label,options])=>select(label,key,options,d[key] ?? c[key] ?? "default")).join("")}</div>`;
 }
+function characterValue(d,c,key,fallback="") {
+  return Object.prototype.hasOwnProperty.call(d,key)?d[key]:(c[key] || fallback);
+}
+function defaultCharacterPrompt(d,c={},picked={}) {
+  const title=characterValue(d,c,"character_title",picked.entity?.title || "新角色");
+  const data={...d,character_title:title,character_description:characterValue(d,c,"character_description",c.description || ""),
+    body_notes:characterValue(d,c,"body_notes"),face_notes:characterValue(d,c,"face_notes"),
+    outfit_notes:characterValue(d,c,"outfit_notes"),outfit_strategy:characterValue(d,c,"outfit_strategy",c.outfit_media_ids?.length?"merge":"keep")};
+  for(const [key] of bodyTypeFields)data[key]=d[key] ?? c[key] ?? "default";
+  return [
+    `为成年原创虚拟女性“${title}”生成同一身份的角色三视图。`,
+    "输出正面、侧面、背面，白底或干净棚拍背景，五官、发型、身材比例和服装保持一致。",
+    data.character_description&&`稳定身份特征：${data.character_description}`,
+    bodyTypeText(data)&&`身材 Type：${bodyTypeText(data)}`,
+    data.body_notes&&`身材补充：${data.body_notes}`,
+    data.face_notes&&`面部与表情：${data.face_notes}`,
+    `穿搭生成方式：${{merge:"把人物三视图与穿搭参考图合成新造型",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[data.outfit_strategy || "merge"]}`,
+    data.outfit_notes&&`穿搭要求：${data.outfit_notes}`,
+    (d.character_reference_media_ids || c.reference_media_ids || []).length&&"人物参考图已提供，身份和脸部以参考图为准。",
+    (d.outfit_media_ids || c.outfit_media_ids || []).length&&"穿搭参考图已提供，服装版型、材质和配色以参考图为准。",
+    "避免夸张透视和遮挡；三视图用于后续本地 ComfyUI 角色一致性。"
+  ].filter(Boolean).join("\n");
+}
 function beautyCharacterView() {
   const d=beautyDraft(), picked=beautyCharacterRef(), c=picked.version?.content || {};
-  const has=(key)=>Object.prototype.hasOwnProperty.call(d,key);
-  const text=(key,fallback="")=>has(key)?d[key]:(c[key] || fallback);
-  const ids=(key)=>has(key)?d[key]:(c[key] || []);
+  const text=(key,fallback="")=>characterValue(d,c,key,fallback);
+  const ids=(key,fallback=[])=>Object.prototype.hasOwnProperty.call(d,key)?d[key]:(c[key] || fallback);
   const choices=beautyCharacters().filter(accepted).map(e=>[`${e.id}|${e.accepted}`,`${e.title} · v${e.accepted}`]);
   if(d.character&&!choices.some(([id])=>id===d.character))choices.push([d.character,`${picked.entity?.title || picked.id} · v${picked.revision || "草稿"}`]);
   const viewIds=ids("character_media_ids").length?ids("character_media_ids"):(c.media_ids || []);
@@ -103,10 +124,10 @@ function beautyCharacterView() {
     <details open><summary>三视图与参考素材</summary>
       <label class="field">已确认三视图 / 角色结果图</label>${mediaChecks("character_media_ids",viewIds,"image/")}
       <div class="row">${btn("导入三视图结果","beauty-upload","character_views")}${btn("导入人物参考图","beauty-upload","character_reference")}${btn("导入穿搭参考图","beauty-upload","outfit_reference")}</div>
-      <label class="field">人物参考图</label>${mediaChecks("character_reference_media_ids",ids("character_reference_media_ids"),"image/")}
+      <label class="field">人物参考图</label>${mediaChecks("character_reference_media_ids",ids("character_reference_media_ids",c.reference_media_ids || []),"image/")}
       <label class="field">穿搭参考图</label>${mediaChecks("outfit_media_ids",ids("outfit_media_ids"),"image/")}
     </details>
-    ${area("三视图生成提示词","character_prompt",text("character_prompt",c.image_prompt || ""),"用于外部生图或后续 ComfyUI。生成后把结果导入上面的三视图结果。",7)}
+    ${area("三视图生成提示词","character_prompt",text("character_prompt",c.image_prompt || defaultCharacterPrompt(d,c,picked)),"用于外部生图或后续 ComfyUI。生成后把结果导入上面的三视图结果。",7)}
     <div class="row">${btn("组合三视图提示词","beauty-character-basic")}${btn("AI 优化三视图提示词","beauty-compose","character")}<button type="button" class="future-action" disabled title="尚未连接另一台电脑的 ComfyUI">ComfyUI 生三视图（待接入）</button></div>
     <div class="row save-work">${btn("保存三视图草稿","beauty-character-save")}${btn("确认三视图并进入主题","beauty-character-current","","primary")}</div>
   </form>`;
@@ -241,21 +262,8 @@ async function beautyOpen(id) {
   S.dirty=false;S.page="beauty-create";P.step=0;await productionLoad();render();
 }
 function beautyCharacterBasic() {
-  const d=beautyRead();
-  const title=d.character_title || "新角色";
-  d.character_prompt=[
-    `为成年原创虚拟女性“${title}”生成同一身份的角色三视图。`,
-    "输出正面、侧面、背面，白底或干净棚拍背景，五官、发型、身材比例和服装保持一致。",
-    d.character_description&&`稳定身份特征：${d.character_description}`,
-    bodyTypeText(d)&&`身材 Type：${bodyTypeText(d)}`,
-    d.body_notes&&`身材微调：${d.body_notes}`,
-    d.face_notes&&`面部与表情：${d.face_notes}`,
-    `穿搭生成方式：${{merge:"把人物三视图与穿搭参考图合成新造型",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}`,
-    d.outfit_notes&&`穿搭要求：${d.outfit_notes}`,
-    d.character_reference_media_ids?.length&&"人物参考图已提供，身份和脸部以参考图为准。",
-    d.outfit_media_ids?.length&&"穿搭参考图已提供，服装版型、材质和配色以参考图为准。",
-    "避免夸张透视和遮挡；三视图用于后续本地 ComfyUI 角色一致性。"
-  ].filter(Boolean).join("\n");
+  const d=beautyRead(), picked=beautyCharacterRef();
+  d.character_prompt=defaultCharacterPrompt(d,picked.version?.content || {},picked);
   S.dirty=true;render();toast("已组合三视图提示词，尚未调用 AI");
 }
 async function beautySaveCharacter(setCurrent=false) {
