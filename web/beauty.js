@@ -3,9 +3,17 @@
 // Reuse the notebook's asset/shot/attempt versions; the UI works with people and single works.
 const B = {id:"", draft:null, pending:null, extraDeps:[], repair:null, historyDeps:null};
 const beautyModes = {daily:"日常",outfit:"穿搭",dance:"舞蹈"};
-const bodyTypeFields = [["body_height","身高"],["body_shoulders","肩部"],["body_chest","胸部"],["body_waist","腰部"],["body_hips","臀部"],["body_legs","腿部"],["body_arms","手臂"]];
-const bodyTypeOptions = [["default","默认"],["small","偏小"],["medium","适中"],["large","偏大"],["extra","更大"]];
-const bodyTypeText = d => bodyTypeFields.map(([key,label])=>d[key]&&d[key]!=="default"?`${label}${Object.fromEntries(bodyTypeOptions)[d[key]]}`:"").filter(Boolean).join("，");
+const bodyTypeFields = [
+  ["body_height","身高",[["default","默认"],["petite","娇小"],["average","标准"],["tall","高挑"],["very_tall","更高挑"]]],
+  ["body_shoulders","肩部",[["default","默认"],["narrow","窄肩"],["natural","自然肩"],["right_angle","直角肩"],["broad","宽肩"]]],
+  ["body_chest","胸部",[["default","默认"],["small","偏小"],["medium","适中"],["large","偏大"],["extra","更大"]]],
+  ["body_waist","腰部",[["default","默认"],["natural","自然腰线"],["slim","细腰"],["defined","收腰明显"],["soft","柔和腰线"]]],
+  ["body_hips","臀部",[["default","默认"],["small","偏小"],["medium","适中"],["large","偏大"],["extra","更大"]]],
+  ["body_legs","腿部",[["default","默认"],["balanced","匀称"],["long","长腿比例"],["straight","直腿线条"],["toned","紧致线条"]]],
+  ["body_arms","手臂",[["default","默认"],["slender","纤细"],["natural","自然"],["toned","紧致"],["soft","柔和"]]]
+];
+const bodyOptionText = (key,value) => (bodyTypeFields.find(([id])=>id===key)?.[2].find(([id])=>id===value) || [value,value])[1];
+const bodyTypeText = d => bodyTypeFields.map(([key,label])=>d[key]&&d[key]!=="default"?`${label}${bodyOptionText(key,d[key])}`:"").filter(Boolean).join("，");
 const beautyWork = () => entity(B.id);
 const beautyCharacters = () => entities("asset").filter(e=>version(e).content.type==="角色");
 const beautyMedia = id => S.project.media.find(m=>m.id===id);
@@ -70,7 +78,7 @@ function beautyCharacterRef() {
   return {id, revision:Number(rev), entity:e, version:e?version(e,Number(rev) || e.accepted || e.head):null};
 }
 function bodyTypeControls(d,c) {
-  return `<div class="form-grid">${bodyTypeFields.map(([key,label])=>select(label,key,bodyTypeOptions,d[key] ?? c[key] ?? "default")).join("")}</div>`;
+  return `<div class="form-grid">${bodyTypeFields.map(([key,label,options])=>select(label,key,options,d[key] ?? c[key] ?? "default")).join("")}</div>`;
 }
 function beautyCharacterView() {
   const d=beautyDraft(), picked=beautyCharacterRef(), c=picked.version?.content || {};
@@ -88,7 +96,7 @@ function beautyCharacterView() {
     <div class="row">${badge(confirmed?"三视图已确认":"等待确认三视图",confirmed?"ok":"warn")}${picked.entity?stateBadge(picked.entity):""}${btn("打开共享人物库","workspace-library","asset")}</div>
     <div class="form-grid">
       <section>${area("稳定身份特征","character_description",text("character_description",c.description || ""),"脸型、发型、年龄感、气质、不可漂移的身份特征。",4)}</section>
-      <section class="full"><p class="field-title">身材 Type（部位大小）</p>${bodyTypeControls(d,c)}${area("身材补充","body_notes",text("body_notes"),"比例、姿态、肩颈、腰臀、腿型等补充约束。",3)}</section>
+      <section class="full"><p class="field-title">身材 Type（部位维度）</p>${bodyTypeControls(d,c)}${area("身材补充","body_notes",text("body_notes"),"比例、姿态、肩颈、腰臀、腿型等补充约束。",3)}</section>
       <section>${area("面部 / 表情微调","face_notes",text("face_notes"),"表情、眼神、妆容、脸部细节；和稳定身份冲突时以身份为准。",4)}</section>
       <section>${select("穿搭生成方式","outfit_strategy",[["merge","人物三视图 + 穿搭参考图合成"],["keep","沿用当前三视图穿搭"],["text","只按文字描述"]],text("outfit_strategy",c.outfit_media_ids?.length?"merge":"keep"))}${area("穿搭微调","outfit_notes",text("outfit_notes"),"服装版型、材质、领口、袖长、配饰；有参考图时以参考图为准。",4)}</section>
     </div>
