@@ -125,7 +125,7 @@ function render() {
 }
 function welcome() {
   if(S.space==="beauty")return `<div class="hero welcome"><span class="hero-tag">AI 美女 / 一位人物，多种生活</span><h2>选一个主题，<br>做出今天的视频。</h2><p>选择人物 → 选择今日主题 → 生成视频 → 导出。<br>提示词在这里整理，媒体到常用 AI 平台生成，再回来选片。</p><div class="row">${btn("创建美女项目 →","new-project","","primary")}${btn("恢复工程","restore")}</div></div>`;
-  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集六步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>批量回填、连续判片，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
+  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集六步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>批量回填、候选筛选，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
 }
 function stageCodes() {
   if(S.project.project.track === "drama"){

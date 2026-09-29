@@ -520,35 +520,63 @@ class Store:
     def batch_attempts(self, project, data):
         rows = data.get("rows", [])
         require(isinstance(rows, list) and 0 < len(rows) <= 200, "每批请选择 1～200 个结果")
+        select_current = data.get("select_current", False)
+        require(type(select_current) is bool, "批量选择参数无效")
         with self.connect() as con:
             con.execute("BEGIN IMMEDIATE")
             state = self._snapshot(con, project)
             media = {m["id"]: m for m in state["media"]}
-            results = []
+            results, targets = [], set()
             for row in rows:
                 prompt_ref = row.get("prompt_ref", {})
                 reference(prompt_ref)
                 found = find_version(state, prompt_ref)
                 require(found and found[0]["kind"] == "shot" and not is_trashed(state, prompt_ref["id"]), "对应镜头不存在")
+                require(not select_current or found[0]["accepted"] == prompt_ref["revision"],
+                        "旧提示词结果不能直接设为当前，请进入候选筛选后复核")
                 item = media.get(row.get("media_id"))
                 medium = row.get("medium")
                 require(medium in {"image", "video"} and item and item["mime"].startswith(medium + "/"), "结果文件与类型不符")
+                target = (prompt_ref["id"], medium)
+                require(not select_current or target not in targets, "直接设为当前时，每个镜头只能关联一个同类型结果")
+                targets.add(target)
                 record_id = "TAKE-" + hashlib.sha256((item["id"] + dump(prompt_ref) + medium).encode()).hexdigest()[:32]
                 old = next((e for e in state["entities"] if e["id"] == record_id), None)
                 if old:
                     require(not is_trashed(state, record_id), "此文件的候选记录在回收站，请先恢复")
-                    results.append({"id": record_id, "existing": True})
-                    continue
-                prompt = found[1]
-                c = prompt["content"]
-                content = {"prompt_ref": prompt_ref, "medium": medium, "result_media": [item["id"]],
-                           "input_media": row.get("input_media", list(media_refs(c))),
-                           "actual_prompt": row.get("actual_prompt", c.get(medium + "_prompt", "")),
-                           "platform": row.get("platform", c.get("platform", "")), "parameters": row.get("parameters", ""),
-                           "judgment": "unreviewed", "user_reviewed": False, "feedback": ""}
-                results.append(self._save(con, state, {"id": record_id, "kind": "attempt", "title": item["name"],
-                    "episode": found[0]["episode"], "content": content, "deps": [prompt_ref]}))
-            return {"items": [{"id": v["id"]} for v in results], "count": len(results)}
+                    if not select_current:
+                        results.append({"id": record_id, "existing": True})
+                        continue
+                    latest = current_version(old)
+                    chosen = selected_takes(state, medium).get(prompt_ref["id"])
+                    if (latest["content"].get("judgment") == "accepted" and
+                            latest["content"].get("user_reviewed") is True and
+                            chosen == {"id": record_id, "revision": latest["revision"]}):
+                        results.append({"id": record_id, "existing": True})
+                        continue
+                    content = dict(latest["content"], judgment="accepted", user_reviewed=True)
+                    saved = self._save(con, state, {"id": record_id, "kind": "attempt", "title": old["title"],
+                        "episode": old["episode"], "base_revision": old["head"], "content": content,
+                        "deps": latest["deps"], "set_current": True, "expected_accepted": old["accepted"]})
+                else:
+                    prompt = found[1]
+                    c = prompt["content"]
+                    content = {"prompt_ref": prompt_ref, "medium": medium, "result_media": [item["id"]],
+                               "input_media": row.get("input_media", list(media_refs(c))),
+                               "actual_prompt": row.get("actual_prompt", c.get(medium + "_prompt", "")),
+                               "platform": row.get("platform", c.get("platform", "")), "parameters": row.get("parameters", ""),
+                               "judgment": "accepted" if select_current else "unreviewed",
+                               "user_reviewed": select_current, "feedback": ""}
+                    saved = self._save(con, state, {"id": record_id, "kind": "attempt", "title": item["name"],
+                        "episode": found[0]["episode"], "content": content, "deps": [prompt_ref],
+                        "set_current": select_current, "expected_accepted": None})
+                results.append(saved)
+                if select_current:
+                    event = {"type": "select_take", "shot": prompt_ref["id"], "medium": medium,
+                             "id": record_id, "revision": saved["revision"], "created": now()}
+                    con.execute("INSERT INTO events(project,body) VALUES(?,?)", (project, dump(event)))
+                    state["events"].append(event)
+            return {"items": [{"id": v["id"]} for v in results], "count": len(results), "selected": len(results) if select_current else 0}
 
     def review_attempt(self, project, data):
         with self.connect() as con:

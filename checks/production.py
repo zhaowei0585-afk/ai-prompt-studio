@@ -48,6 +48,25 @@ def main():
         assert len(active_entities(store.snapshot(pid), "attempt")) == 120
         invalid = [rows[0], dict(rows[1], media_id="missing")]
         blocked(lambda: store.batch_attempts(pid, {"rows": invalid}))
+        direct_project = store.create({"name": "已筛选回填", "track": "drama"})
+        direct_shot = store.save(direct_project["id"], {"id": "DIRECT-S001", "kind": "shot", "title": "直接选图",
+            "episode": "EP001", "content": {"duration": 5, "image_prompt": "当前图片词"}, "set_current": True})
+        direct_media = store.add_media(direct_project["id"], "DIRECT-S001.png", io.BytesIO(b"direct-image"), 12)
+        direct_row = {"media_id": direct_media["id"], "prompt_ref": ref(direct_shot), "medium": "image"}
+        direct = store.batch_attempts(direct_project["id"], {"rows": [direct_row], "select_current": True})
+        direct_state = store.snapshot(direct_project["id"])
+        assert direct["selected"] == 1 and selected_takes(direct_state, "image")["DIRECT-S001"]["id"] == direct["items"][0]["id"]
+        store.batch_attempts(direct_project["id"], {"rows": [direct_row], "select_current": True})
+        assert len(active_entities(store.snapshot(direct_project["id"]), "attempt")) == 1
+        duplicate_media = store.add_media(direct_project["id"], "DIRECT-S001-alt.png", io.BytesIO(b"alternate"), 9)
+        blocked(lambda: store.batch_attempts(direct_project["id"], {"rows": [
+            direct_row, {"media_id": duplicate_media["id"], "prompt_ref": ref(direct_shot), "medium": "image"}],
+            "select_current": True}))
+        store.save(direct_project["id"], {"id": direct_shot["id"], "kind": "shot", "title": "直接选图",
+            "episode": "EP001", "base_revision": 1, "content": {"duration": 5, "image_prompt": "新版图片词"},
+            "set_current": True, "expected_accepted": 1})
+        blocked(lambda: store.batch_attempts(direct_project["id"], {"rows": [direct_row], "select_current": True}))
+        print("PASS pre-screened batch can directly set one current result per shot")
         for n, shot in enumerate(shots):
             take = batch["items"][n*4]["id"]
             selected = store.review_attempt(pid, {"id": take, "revision": 1, "judgment": "accepted", "expected": None})

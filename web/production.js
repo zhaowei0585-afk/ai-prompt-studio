@@ -32,7 +32,7 @@ function scriptSourcesView(){
 }
 function productionView(){
   if(S.page==="overview")return actionCenter();
-  if(S.page==="inbox")return section("素材箱","批量上传 → 确认镜头与提示词版本 → 在这里连续判片")+inboxView()+galleryView();
+  if(S.page==="inbox")return section("素材箱","批量上传 → 确认镜头与提示词版本 → 已筛选结果直接设为当前，多候选再筛选")+inboxView()+galleryView();
   if(S.page==="beauty-create")return beautyFlowView();
   if(S.page!=="pipeline")return null;
   let body;
@@ -52,7 +52,7 @@ function actionCenter(){
   const unreviewed=entities("attempt").filter(e=>version(e).content.judgment==="unreviewed");
   const groups=flowLabels().map((label,i)=>({label,step:i,issues:(P.status?.issues || []).filter(x=>x.step===i)})).filter(g=>g.issues.length);
   return `<div class="hero"><span class="hero-tag">${S.space==="drama"?"一集六步":"一条视频四步"} / ${esc(S.space==="drama"?S.episode:"单作品创作")}</span><h2>${esc(S.project.project.name)}</h2><p>${flowLabels().join(" → ")}</p><div class="row">${btn("继续制作","flow-step",String(groups[0]?.step || 0),"primary")}${S.space==="beauty"?btn("＋ 新作品","beauty-new"):""}</div></div>
-    <div class="stats">${[["镜头 / 作品",list.length],["待设为当前",pending.length],["待判片",unreviewed.length],["已选视频",list.filter(e=>S.project.selected[e.id]).length]].map(([label,n])=>`<div class="stat"><span>${label}</span><strong>${n}</strong></div>`).join("")}</div>
+    <div class="stats">${[["镜头 / 作品",list.length],["待设为当前",pending.length],["待筛选",unreviewed.length],["已选视频",list.filter(e=>S.project.selected[e.id]).length]].map(([label,n])=>`<div class="stat"><span>${label}</span><strong>${n}</strong></div>`).join("")}</div>
     ${section("现在该处理什么","点击一项，直接进入需要处理的节点。",btn("打开素材箱","goto-page","inbox"))}
     <div class="action-queue">${groups.map(g=>`<article class="queue-row"><div><h3>${g.label} · ${g.issues.length} 项</h3><p>${esc(g.issues.slice(0,2).map(x=>x.message).join("；"))}</p></div>${btn("去处理","flow-step",String(g.step))}</article>`).join("")||`<article class="queue-row"><div><h3>本次交付已就绪</h3><p>已选结果、配音和版本检查通过。</p></div>${btn("导出","flow-step",String(flowLabels().length-1))}</article>`}</div>
     ${pending.length?`<details class="history"><summary>草稿尚未设为当前版本 · ${pending.length}</summary>${pending.map(e=>`<div class="queue-row"><span>${esc(e.title)} · 草稿 v${e.head} / 当前 ${e.accepted?"v"+e.accepted:"未设置"}</span>${btn("打开并检查","open-entity",e.id)}</div>`).join("")}</details>`:""}
@@ -79,6 +79,11 @@ function promptWorkspace(){
 function inboxView(){
   const shots=productionShots(),ready=shots.filter(accepted),used=new Set(entities("attempt").flatMap(e=>version(e).content.result_media || []));
   const available=S.project.media.filter(m=>/^(image|video)\//.test(m.mime)&&!used.has(m.id));
+  const targets=P.rows.map(row=>row.shot&&row.revision?`${row.shot}|${row.medium}`:"");
+  const mapped=targets.every(Boolean),unique=new Set(targets).size===targets.length,current=P.rows.every(row=>entity(row.shot)?.accepted===row.revision);
+  const direct=P.rows.length>0&&mapped&&unique&&current;
+  const directHelp=!mapped?"先为每个文件选择镜头和版本。":!unique?"同一镜头存在多个结果，需要进入候选筛选。":!current?"包含旧提示词版本，需要进入候选筛选后复核。":"";
+  const resultName=new Set(P.rows.map(row=>row.medium)).size===1?(P.rows[0]?.medium==="image"?"图片":"视频"):"结果";
   return `<section class="inbox card">
     ${section("批量回填","文件名含镜号可自动匹配；导入前逐行确认实际使用的版本。",btn("选择结果文件","inbox-upload")+btn("从已上传素材选择","inbox-existing"))}
     <div class="result-drop" data-inbox-drop>拖入一批图片或视频 · 单批最多 200 个 · 上传后仍可调整关联</div>
@@ -94,7 +99,8 @@ function inboxView(){
           <td><select aria-label="文件 ${i+1} 对应镜头" data-map-shot="${i}"><option value="">选择镜头</option>${shots.map(s=>`<option value="${esc(s.id)}" ${s.id===row.shot?"selected":""}>${esc(s.id+" · "+s.title)}</option>`).join("")}</select></td>
           <td><select aria-label="文件 ${i+1} 提示词版本" data-map-rev="${i}">${(e?.versions || []).filter(v=>!trashed(e.id,v.revision)).map(v=>`<option value="${v.revision}" ${v.revision===row.revision?"selected":""}>v${v.revision}${e.accepted===v.revision?" · 当前":""}</option>`).join("")}</select></td></tr>`;
       }).join("")}</tbody></table></div>
-      <div class="row">${btn(`确认关联 ${P.rows.length} 个结果，开始判片`,"inbox-commit","","primary")}</div>`:""}
+      <div class="row">${direct?btn(`已筛选，直接设为当前${resultName}`,"inbox-commit-current","","primary"):""}${btn(`保留为候选，进入${resultName}筛选`,"inbox-commit","",direct?"":"primary")}</div>
+      ${direct?"":`<small>${directHelp}</small>`}`:""}
     </section>`;
 }
 function galleryItems(){
@@ -108,13 +114,13 @@ function galleryView(){
   const items=galleryItems();P.index=Math.max(0,Math.min(P.index,items.length-1));
   const e=items[P.index],c=version(e)?.content,shot=c?entity(c.prompt_ref.id):null;
   const current=c?(P.medium==="image"?S.project.selected_images:S.project.selected)[c.prompt_ref.id]:null;
-  return `<section id="gallery" class="card">${section("连续判片",`${items.length} 个候选 · J / K 或左右键切换 · A 设为当前 · R 返修 · X 淘汰`,btn(`并排对比 (${P.compare.length})`,"compare-open"))}
+  return `<section id="gallery" class="card">${section(P.medium==="image"?"候选图片筛选":"候选视频筛选",`${items.length} 个候选 · J / K 或左右键切换 · A 设为当前 · R 返修 · X 淘汰`,btn(`并排对比 (${P.compare.length})`,"compare-open"))}
     <div class="gallery-filters">${select("结果类型","gallery-medium",[["image","图片"],["video","视频"]],P.medium)}
       ${select("镜头 / 作品","gallery-shot",[["","全部镜头"],...productionShots().map(s=>[s.id,s.id+" · "+s.title])],P.shot)}
-      ${select("判片状态","gallery-filter",[["all","全部"],["unreviewed","待判片"],["accepted","可用"],["rejected","需返修"],["discarded","已淘汰"]],P.filter)}</div>
+      ${select("筛选状态","gallery-filter",[["all","全部"],["unreviewed","待筛选"],["accepted","可用"],["rejected","需返修"],["discarded","已淘汰"]],P.filter)}</div>
     ${e?`<div class="review-layout"><div class="review-media">${(c.result_media || []).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>
       <div class="review-controls"><span class="eyebrow">${P.index+1} / ${items.length} · ${esc(shot?.title)}</span><h3>${esc(e.title)}</h3>
-        <div class="row">${badge({accepted:"可用",rejected:"需返修",discarded:"已淘汰",unreviewed:"待判片"}[c.judgment])}${current?.id===e.id?badge("当前结果","ok"):""}${badge(`提示词 v${c.prompt_ref.revision}`)}</div>
+        <div class="row">${badge({accepted:"可用",rejected:"需返修",discarded:"已淘汰",unreviewed:"待筛选"}[c.judgment])}${current?.id===e.id?badge("当前结果","ok"):""}${badge(`提示词 v${c.prompt_ref.revision}`)}</div>
         <p>${esc(c.platform || "未记录平台")}</p>
         ${c.prompt_ref.revision!==shot?.accepted?check(`我已对照当前提示词 v${shot?.accepted} 复核这个旧结果`,"review-revalidate","yes"):""}
         ${area("返修意见","review-feedback",c.feedback || "","只有返修时需要填写，其他结果可直接判断。",3)}
@@ -244,7 +250,7 @@ async function uploadInbox(files){
   }finally{P.busy=false;await refresh();}
   toast("上传完成，请核对镜头和版本后确认关联");
 }
-async function commitInbox(){
+async function commitInbox(selectCurrent=false){
   if(P.busy)return;
   const platform=$('[name="batch-platform"]').value,parameters=$('[name="batch-parameters"]').value,prompt=$('[name="batch-prompt"]').value;
   const rows=P.rows.map(row=>{
@@ -255,11 +261,14 @@ async function commitInbox(){
     if(prompt)result.actual_prompt=prompt;
     return result;
   });
+  const resultName=new Set(rows.map(row=>row.medium)).size===1?(rows[0].medium==="image"?"图片":"视频"):"结果";
   P.busy=true;
   try{
-    const result=await projectAPI("batch-attempts",{rows});
+    const result=await projectAPI("batch-attempts",{rows,select_current:selectCurrent});
     P.rows=[];P.shot="";P.filter="unreviewed";P.medium=rows[0].medium;P.index=0;
-    await refresh();$("#gallery").scrollIntoView({behavior:"smooth"});toast(`已关联 ${result.count} 个结果，开始连续判片`);
+    await refresh();
+    if(selectCurrent)toast(`已回填并设定 ${result.selected} 个当前${resultName}`);
+    else{$("#gallery").scrollIntoView({behavior:"smooth"});toast(`已关联 ${result.count} 个结果，开始候选筛选`);}
   }finally{P.busy=false;}
 }
 async function review(id,judgment){
@@ -287,7 +296,7 @@ function compareDialog(){
         const different=JSON.stringify(c[key])!==JSON.stringify(first[key]);
         const words=key==="actual_prompt"&&different?text.split(/(\s+|[，。；、])/).map(w=>first[key]?.includes(w)?esc(w):`<mark>${esc(w)}</mark>`).join(""):esc(text || "未记录");
         return `<div class="diff-field ${different?"changed":""}"><b>${label}${different?" · 有差异":""}</b><pre>${words}</pre></div>`;
-      }).join("")}${btn("查看并判片","compare-review",e.id)}</article>`;
+      }).join("")}${btn("查看并筛选","compare-review",e.id)}</article>`;
   }).join("")}</div>`,btn("关闭","close"));
   $("#modal").classList.add("wide");
 }
@@ -329,7 +338,8 @@ Object.assign(actions,{
     modal("关联已上传素材",`<div class="checks">${S.project.media.filter(m=>/^(image|video)\//.test(m.mime)&&!used.has(m.id)).map(m=>check(m.name,"inbox-media",m.id)).join("")}</div>`,btn("添加到待关联列表","inbox-add-existing"));
   },
   "inbox-add-existing":()=>{const ids=$$('[name="inbox-media"]:checked').map(el=>el.value);if(P.rows.length+ids.length>200)throw new Error("单批最多 200 个");ids.map(beautyMedia).forEach(m=>addInboxRow(m));closeModal(true);render();},
-  "inbox-commit":commitInbox,
+  "inbox-commit":()=>commitInbox(false),
+  "inbox-commit-current":()=>commitInbox(true),
   "review-prev":()=>{P.index=Math.max(0,P.index-1);render();},
   "review-next":()=>{P.index++;render();},
   "review-at":id=>{P.index=Number(id);render();},

@@ -135,8 +135,10 @@ def main():
                 expect(page.locator("[data-map-shot]")).to_have_count(120, timeout=60000)
                 assert page.locator("[data-map-shot]").first.input_value() == "EP001-S001"
                 page.locator("[data-map-rev]").first.select_option("2")
+                expect(page.locator('[data-action="inbox-commit-current"]')).to_have_count(0)
                 click("inbox-commit")
                 expect(page.locator(".candidate")).to_have_count(120, timeout=30000)
+                expect(page.locator("#gallery .section-head h2")).to_have_text("候选图片筛选")
                 assert len([e for e in state()["entities"] if e["kind"] == "attempt"]) == 120
                 # Same-shot comparison, differing prompt revisions, no modal-per-take workflow.
                 page.locator('[name="compare-take"]').nth(0).check()
@@ -179,12 +181,11 @@ def main():
                     clips.append(str(clip))
                 page.locator("#inbox-input").set_input_files(clips)
                 expect(page.locator("[data-map-shot]")).to_have_count(30, timeout=30000)
-                click("inbox-commit")
-                expect(page.locator(".candidate")).to_have_count(30)
-                for s in shots:
-                    page.locator('[name="gallery-shot"]').select_option(s["id"])
-                    page.keyboard.press("a")
-                    expect(page.locator(".candidate")).to_have_count(0)
+                expect(page.locator('[data-action="inbox-commit-current"]')).to_have_text("已筛选，直接设为当前视频")
+                click("inbox-commit-current")
+                expect(page.locator("#toast")).to_contain_text("30 个当前视频")
+                expect(page.locator(".candidate")).to_have_count(0)
+                assert len(selected_takes(state())) == 30
                 click("flow-next")
                 expect(page.locator("#voice-form")).to_be_visible()
                 page.locator('[name="no_voice"]').check()
