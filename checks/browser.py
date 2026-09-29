@@ -51,6 +51,8 @@ def main():
             "set_current": True})
         novel = Path(temp)/"第一章.txt"
         novel.write_text("雨夜里，她收到一封没有署名的信。", encoding="utf-8")
+        unmatched = Path(temp)/"unmatched.png"
+        unmatched.write_bytes(png)
         errors = []
         dialogs = {"accept": True}
         try:
@@ -130,22 +132,24 @@ def main():
                 assert s["head"] == 2 and s["accepted"] == 1
                 click("flow-accept", s["id"])
                 expect(page.locator("#toast")).to_contain_text("已设为当前版本")
-                # Upload all 120 files in the same continuous page; explicit per-file versions.
+                page.locator("#inbox-input").set_input_files(str(unmatched))
+                expect(page.locator("[data-map-shot]")).to_have_count(1)
+                click("inbox-clear")
+                expect(page.locator("[data-map-shot]")).to_have_count(0)
+                # Recognizable filenames enter the candidate list without a second confirmation.
                 page.locator("#inbox-input").set_input_files(images)
-                expect(page.locator("[data-map-shot]")).to_have_count(120, timeout=60000)
-                assert page.locator("[data-map-shot]").first.input_value() == "EP001-S001"
-                page.locator("[data-map-rev]").first.select_option("2")
-                expect(page.locator('[data-action="inbox-commit-current"]')).to_have_count(0)
-                click("inbox-commit")
                 expect(page.locator(".candidate")).to_have_count(120, timeout=30000)
                 expect(page.locator("#gallery .section-head h2")).to_have_text("候选图片筛选")
+                candidate_labels = page.locator(".candidate button").all_text_contents()
+                assert candidate_labels[:5] == [
+                    "EP001-S001 · 候选 V1", "EP001-S001 · 候选 V2", "EP001-S001 · 候选 V3",
+                    "EP001-S001 · 候选 V4", "EP001-S002 · 候选 V1"], candidate_labels[:5]
                 assert len([e for e in state()["entities"] if e["kind"] == "attempt"]) == 120
                 # Same-shot comparison, differing prompt revisions, no modal-per-take workflow.
                 page.locator('[name="compare-take"]').nth(0).check()
                 page.locator('[name="compare-take"]').nth(1).check()
                 click("compare-open")
                 expect(page.locator(".compare-grid article")).to_have_count(2)
-                expect(page.locator(".changed")).to_have_count(1)
                 click("close")
                 page.screenshot(path="/tmp/prompt-studio-batch-desktop.png", full_page=True)
                 for s in shots:
@@ -180,12 +184,12 @@ def main():
                     clip.write_bytes(clip_bytes)
                     clips.append(str(clip))
                 page.locator("#inbox-input").set_input_files(clips)
-                expect(page.locator("[data-map-shot]")).to_have_count(30, timeout=30000)
-                expect(page.locator('[data-action="inbox-commit-current"]')).to_have_text("已筛选，直接设为当前视频")
-                click("inbox-commit-current")
-                expect(page.locator("#toast")).to_contain_text("30 个当前视频")
-                expect(page.locator(".candidate")).to_have_count(0)
-                assert len(selected_takes(state())) == 30
+                expect(page.locator(".candidate")).to_have_count(30, timeout=30000)
+                expect(page.locator("#gallery .section-head h2")).to_have_text("候选视频筛选")
+                for s in shots:
+                    page.locator('[name="gallery-shot"]').select_option(s["id"])
+                    page.keyboard.press("a")
+                    expect(page.locator(".candidate")).to_have_count(0)
                 click("flow-next")
                 expect(page.locator("#voice-form")).to_be_visible()
                 page.locator('[name="no_voice"]').check()
@@ -268,9 +272,8 @@ def main():
                 click("beauty-current")
                 expect(page.locator("#toast")).to_have_text("已保存并设为当前版本")
                 page.locator("#inbox-input").set_input_files(clips[:1])
-                expect(page.locator("[data-map-shot]")).to_have_count(1)
-                click("inbox-commit")
                 expect(page.locator(".candidate")).to_have_count(1)
+                expect(page.locator("#gallery .section-head h2")).to_have_text("候选视频筛选")
                 page.keyboard.press("a")
                 expect(page.locator(".candidate")).to_have_count(0)
                 assert production_status(state(), work=next(e["id"] for e in state()["entities"] if e["kind"] == "shot"))["ready"]

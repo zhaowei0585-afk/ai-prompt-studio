@@ -32,7 +32,7 @@ function scriptSourcesView(){
 }
 function productionView(){
   if(S.page==="overview")return actionCenter();
-  if(S.page==="inbox")return section("素材箱","批量上传 → 确认镜头与提示词版本 → 已筛选结果直接设为当前，多候选再筛选")+inboxView()+galleryView();
+  if(S.page==="inbox")return section("素材箱","生成结果按镜头自动入列并排序，在候选图片或视频列表中统一筛选")+inboxView()+galleryView();
   if(S.page==="beauty-create")return beautyFlowView();
   if(S.page!=="pipeline")return null;
   let body;
@@ -58,7 +58,10 @@ function actionCenter(){
     ${pending.length?`<details class="history"><summary>草稿尚未设为当前版本 · ${pending.length}</summary>${pending.map(e=>`<div class="queue-row"><span>${esc(e.title)} · 草稿 v${e.head} / 当前 ${e.accepted?"v"+e.accepted:"未设置"}</span>${btn("打开并检查","open-entity",e.id)}</div>`).join("")}</details>`:""}
     ${S.space==="beauty"?beautyLibraryView():""}`;
 }
-function productionShots(){return S.space==="drama"?episodeEntities("shot"):entities("shot");}
+function productionShots(){
+  const shots=S.space==="drama"?episodeEntities("shot"):entities("shot");
+  return S.space==="drama"?shots.slice().sort((a,b)=>(version(a).content.order??Number.MAX_SAFE_INTEGER)-(version(b).content.order??Number.MAX_SAFE_INTEGER)||a.id.localeCompare(b.id)):shots;
+}
 function activeShot(){
   const list=productionShots();
   if(!list.some(e=>e.id===P.focus))P.focus=S.space==="beauty"&&B.id?B.id:list[0]?.id || "";
@@ -79,18 +82,14 @@ function promptWorkspace(){
 function inboxView(){
   const shots=productionShots(),ready=shots.filter(accepted),used=new Set(entities("attempt").flatMap(e=>version(e).content.result_media || []));
   const available=S.project.media.filter(m=>/^(image|video)\//.test(m.mime)&&!used.has(m.id));
-  const targets=P.rows.map(row=>row.shot&&row.revision?`${row.shot}|${row.medium}`:"");
-  const mapped=targets.every(Boolean),unique=new Set(targets).size===targets.length,current=P.rows.every(row=>entity(row.shot)?.accepted===row.revision);
-  const direct=P.rows.length>0&&mapped&&unique&&current;
-  const directHelp=!mapped?"先为每个文件选择镜头和版本。":!unique?"同一镜头存在多个结果，需要进入候选筛选。":!current?"包含旧提示词版本，需要进入候选筛选后复核。":"";
   const resultName=new Set(P.rows.map(row=>row.medium)).size===1?(P.rows[0]?.medium==="image"?"图片":"视频"):"结果";
   return `<section class="inbox card">
-    ${section("批量回填","文件名含镜号可自动匹配；导入前逐行确认实际使用的版本。",btn("选择结果文件","inbox-upload")+btn("从已上传素材选择","inbox-existing"))}
-    <div class="result-drop" data-inbox-drop>拖入一批图片或视频 · 单批最多 200 个 · 上传后仍可调整关联</div>
+    ${section("生成结果导入","文件名包含镜号时自动关联并进入候选列表；无法识别时再手工确认。",btn("选择结果文件","inbox-upload")+btn("从已上传素材选择","inbox-existing"))}
+    <div class="result-drop" data-inbox-drop>拖入一批图片或视频 · 单批最多 200 个 · 自动按镜头和候选版本排序</div>
     <small>${available.length} 个已上传文件尚未关联结果。</small>
     ${P.rows.length?`<div class="form-grid">${select("统一关联镜头 / 作品","batch-shot",[["","保留自动匹配"],...ready.map(e=>[e.id,e.id+" · "+e.title])],P.shot)}
       ${field("按时间顺序：每镜候选数","batch-count",4,"number","按文件修改时间排序，再按镜号分组。","min=1 max=200")}</div>
-      <div class="row">${btn("应用所选镜头","inbox-map")}${btn("按文件时间匹配","inbox-time")}${btn("清除待关联列表","inbox-clear")}</div>
+      <div class="row">${btn("关联到所选镜头并进入筛选","inbox-map")}${btn("按文件时间关联并进入筛选","inbox-time")}${btn("清除待关联列表","inbox-clear")}</div>
       <details><summary>统一填写实际平台、参数或修改后的提示词（可选）</summary>${field("实际平台 / 模型","batch-platform")}
         ${area("实际参数","batch-parameters","","未改参数可留空",2)}${area("实际提示词覆盖","batch-prompt","","留空则使用每行所选提示词版本的原文。",3)}</details>
       <div class="table-wrap mapping-table"><table><thead><tr><th>文件</th><th>对应镜头</th><th>实际提示词版本</th></tr></thead><tbody>${P.rows.map((row,i)=>{
@@ -99,19 +98,26 @@ function inboxView(){
           <td><select aria-label="文件 ${i+1} 对应镜头" data-map-shot="${i}"><option value="">选择镜头</option>${shots.map(s=>`<option value="${esc(s.id)}" ${s.id===row.shot?"selected":""}>${esc(s.id+" · "+s.title)}</option>`).join("")}</select></td>
           <td><select aria-label="文件 ${i+1} 提示词版本" data-map-rev="${i}">${(e?.versions || []).filter(v=>!trashed(e.id,v.revision)).map(v=>`<option value="${v.revision}" ${v.revision===row.revision?"selected":""}>v${v.revision}${e.accepted===v.revision?" · 当前":""}</option>`).join("")}</select></td></tr>`;
       }).join("")}</tbody></table></div>
-      <div class="row">${direct?btn(`已筛选，直接设为当前${resultName}`,"inbox-commit-current","","primary"):""}${btn(`保留为候选，进入${resultName}筛选`,"inbox-commit","",direct?"":"primary")}</div>
-      ${direct?"":`<small>${directHelp}</small>`}`:""}
+      <div class="row">${btn(`确认关联并进入候选${resultName}筛选`,"inbox-commit","","primary")}</div>`:""}
     </section>`;
 }
-function galleryItems(){
-  return productionShots().length?entities("attempt").filter(e=>{
+function orderedAttempts(){
+  const shots=productionShots(),order=new Map(shots.map((s,i)=>[s.id,i]));
+  return shots.length?entities("attempt").filter(e=>{
     const c=version(e).content;
-    return productionShots().some(s=>s.id===c.prompt_ref.id)&&(!P.shot||P.shot===c.prompt_ref.id)&&
-      (c.medium || "video")===P.medium&&(P.filter==="all"||c.judgment===P.filter);
-  }):[];
+    return order.has(c.prompt_ref.id)&&(c.medium || "video")===P.medium;
+  }).sort((a,b)=>order.get(version(a).content.prompt_ref.id)-order.get(version(b).content.prompt_ref.id)):[];
+}
+function galleryItems(all=orderedAttempts()){
+  return all.filter(e=>{
+    const c=version(e).content;
+    return (!P.shot||P.shot===c.prompt_ref.id)&&(P.filter==="all"||c.judgment===P.filter);
+  });
 }
 function galleryView(){
-  const items=galleryItems();P.index=Math.max(0,Math.min(P.index,items.length-1));
+  const all=orderedAttempts(),numbers=new Map(),counts={};
+  all.forEach(e=>{const shot=version(e).content.prompt_ref.id;numbers.set(e.id,counts[shot]=(counts[shot]||0)+1);});
+  const items=galleryItems(all);P.index=Math.max(0,Math.min(P.index,items.length-1));
   const e=items[P.index],c=version(e)?.content,shot=c?entity(c.prompt_ref.id):null;
   const current=c?(P.medium==="image"?S.project.selected_images:S.project.selected)[c.prompt_ref.id]:null;
   return `<section id="gallery" class="card">${section(P.medium==="image"?"候选图片筛选":"候选视频筛选",`${items.length} 个候选 · J / K 或左右键切换 · A 设为当前 · R 返修 · X 淘汰`,btn(`并排对比 (${P.compare.length})`,"compare-open"))}
@@ -119,9 +125,9 @@ function galleryView(){
       ${select("镜头 / 作品","gallery-shot",[["","全部镜头"],...productionShots().map(s=>[s.id,s.id+" · "+s.title])],P.shot)}
       ${select("筛选状态","gallery-filter",[["all","全部"],["unreviewed","待筛选"],["accepted","可用"],["rejected","需返修"],["discarded","已淘汰"]],P.filter)}</div>
     ${e?`<div class="review-layout"><div class="review-media">${(c.result_media || []).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>
-      <div class="review-controls"><span class="eyebrow">${P.index+1} / ${items.length} · ${esc(shot?.title)}</span><h3>${esc(e.title)}</h3>
-        <div class="row">${badge({accepted:"可用",rejected:"需返修",discarded:"已淘汰",unreviewed:"待筛选"}[c.judgment])}${current?.id===e.id?badge("当前结果","ok"):""}${badge(`提示词 v${c.prompt_ref.revision}`)}</div>
-        <p>${esc(c.platform || "未记录平台")}</p>
+      <div class="review-controls"><span class="eyebrow">${P.index+1} / ${items.length} · ${esc(shot?.title)}</span><h3>${esc(c.prompt_ref.id)} · 候选 V${numbers.get(e.id)}</h3>
+        <div class="row">${badge({accepted:"可用",rejected:"需返修",discarded:"已淘汰",unreviewed:"待筛选"}[c.judgment])}${current?.id===e.id?badge("当前结果","ok"):""}${badge(`提示词版本 v${c.prompt_ref.revision}`)}</div>
+        <p>${esc(e.title)} · ${esc(c.platform || "未记录平台")}</p>
         ${c.prompt_ref.revision!==shot?.accepted?check(`我已对照当前提示词 v${shot?.accepted} 复核这个旧结果`,"review-revalidate","yes"):""}
         ${area("返修意见","review-feedback",c.feedback || "","只有返修时需要填写，其他结果可直接判断。",3)}
         <div class="row">${btn("设为当前 · A","review-accept",e.id,"primary")}${btn("需返修 · R","review-reject",e.id)}${btn("淘汰 · X","review-discard",e.id)}</div>
@@ -129,7 +135,7 @@ function galleryView(){
         <details><summary>实际用词、输入与历史</summary><pre>${esc(c.actual_prompt || "")}</pre><p>${esc(c.parameters || "参数未填")}</p>
           <p>${esc((c.input_media || []).map(id=>beautyMedia(id)?.name || id).join("、"))}</p>${btn("编辑完整记录",S.space==="beauty"?"beauty-edit-result":"edit-attempt",e.id)}${btn("胜出结果保存为配方","winner-recipe",e.id)}</details>
       </div></div>
-      <div class="candidate-strip">${items.map((a,i)=>{const m=beautyMedia(version(a).content.result_media?.[0]);return `<div class="candidate ${i===P.index?"active":""}"><button data-action="review-at" data-id="${i}">${m?.mime.startsWith("image/")?`<img src="${mediaURL(m.id)}" loading="lazy" alt="${esc(m.name)}">`:""}${esc(`${i+1} · ${a.title}`)}</button>${check("加入对比","compare-take",a.id,P.compare.includes(a.id))}</div>`;}).join("")}</div>`:empty("暂无候选结果","回填结果后，即可在这里连续预览、选定和返修。")}
+      <div class="candidate-strip">${items.map((a,i)=>{const ac=version(a).content,m=beautyMedia(ac.result_media?.[0]);return `<div class="candidate ${i===P.index?"active":""}"><button data-action="review-at" data-id="${i}" title="${esc(a.title)}">${m?.mime.startsWith("image/")?`<img src="${mediaURL(m.id)}" loading="lazy" alt="${esc(m.name)}">`:""}${esc(`${ac.prompt_ref.id} · 候选 V${numbers.get(a.id)}`)}</button>${check("加入对比","compare-take",a.id,P.compare.includes(a.id))}</div>`;}).join("")}</div>`:empty("暂无候选结果","生成或导入结果后，会按镜头顺序显示在这里。")}
     </section>`;
 }
 function beautyFlowView(){
@@ -233,9 +239,11 @@ async function savePrompt(current){
 function addInboxRow(m,time=0){
   const shots=productionShots(),matches=shots.filter(s=>m.name.toLowerCase().includes(s.id.toLowerCase()));
   const shot=matches.length===1?matches[0]:shots.length===1?shots[0]:null;
-  const explicit=m.name.match(/(?:^|[-_.])v(\d+)(?:[-_.]|$)/i);
-  const revision=shot?(explicit?Number(explicit[1]):shot.accepted || shot.head):0;
+  const revision=shot?(shot.accepted || shot.head):0;
   P.rows.push({media_id:m.id,name:m.name,medium:m.mime.split("/")[0],shot:shot?.id || "",revision,time});
+}
+function inboxRowsReady(){
+  return P.rows.length>0&&P.rows.every(row=>{const e=entity(row.shot);return e&&row.revision&&version(e,row.revision);});
 }
 async function uploadInbox(files){
   if(S.dirty)throw new Error("请先保存编辑，再上传候选结果");
@@ -248,9 +256,10 @@ async function uploadInbox(files){
       addInboxRow(await uploadFile(file),file.lastModified);
     }
   }finally{P.busy=false;await refresh();}
-  toast("上传完成，请核对镜头和版本后确认关联");
+  if(inboxRowsReady())await commitInbox();
+  else toast("部分文件未识别镜头，请确认关联后进入候选筛选");
 }
-async function commitInbox(selectCurrent=false){
+async function commitInbox(){
   if(P.busy)return;
   const platform=$('[name="batch-platform"]').value,parameters=$('[name="batch-parameters"]').value,prompt=$('[name="batch-prompt"]').value;
   const rows=P.rows.map(row=>{
@@ -264,11 +273,9 @@ async function commitInbox(selectCurrent=false){
   const resultName=new Set(rows.map(row=>row.medium)).size===1?(rows[0].medium==="image"?"图片":"视频"):"结果";
   P.busy=true;
   try{
-    const result=await projectAPI("batch-attempts",{rows,select_current:selectCurrent});
+    const result=await projectAPI("batch-attempts",{rows});
     P.rows=[];P.shot="";P.filter="unreviewed";P.medium=rows[0].medium;P.index=0;
-    await refresh();
-    if(selectCurrent)toast(`已回填并设定 ${result.selected} 个当前${resultName}`);
-    else{$("#gallery").scrollIntoView({behavior:"smooth"});toast(`已关联 ${result.count} 个结果，开始候选筛选`);}
+    await refresh();$("#gallery").scrollIntoView({behavior:"smooth"});toast(`已导入 ${result.count} 个候选${resultName}`);
   }finally{P.busy=false;}
 }
 async function review(id,judgment){
@@ -327,19 +334,18 @@ Object.assign(actions,{
   "prompt-copy":()=>{const e=activeShot();if(S.dirty||e.head!==e.accepted)throw new Error("先保存并设为当前版本");return copy(accepted(e).content[P.medium+"_prompt"] || "");},
   "inbox-upload":()=>$("#inbox-input").click(),
   "inbox-clear":()=>{if(confirm("清除待关联列表？已上传文件仍保留在素材库。")){P.rows=[];render();}},
-  "inbox-map":()=>{const e=entity($('[name="batch-shot"]').value);if(!e)throw new Error("先选择统一镜头");P.rows.forEach(r=>{r.shot=e.id;r.revision=e.accepted || e.head;});render();},
-  "inbox-time":()=>{
+  "inbox-map":async()=>{const e=entity($('[name="batch-shot"]').value);if(!e)throw new Error("先选择统一镜头");P.rows.forEach(r=>{r.shot=e.id;r.revision=e.accepted || e.head;});await commitInbox();},
+  "inbox-time":async()=>{
     const count=Number($('[name="batch-count"]').value),shots=productionShots();
     if(!Number.isInteger(count)||count<1||P.rows.length>shots.length*count)throw new Error("每镜候选数与镜头数不足以分配这批文件");
-    P.rows.sort((a,b)=>a.time-b.time||a.name.localeCompare(b.name)).forEach((r,i)=>{const e=shots[Math.floor(i/count)];r.shot=e.id;r.revision=e.accepted||e.head;});render();
+    P.rows.sort((a,b)=>a.time-b.time||a.name.localeCompare(b.name)).forEach((r,i)=>{const e=shots[Math.floor(i/count)];r.shot=e.id;r.revision=e.accepted||e.head;});await commitInbox();
   },
   "inbox-existing":()=>{
     const used=new Set([...entities("attempt").flatMap(e=>version(e).content.result_media || []),...P.rows.map(r=>r.media_id)]);
     modal("关联已上传素材",`<div class="checks">${S.project.media.filter(m=>/^(image|video)\//.test(m.mime)&&!used.has(m.id)).map(m=>check(m.name,"inbox-media",m.id)).join("")}</div>`,btn("添加到待关联列表","inbox-add-existing"));
   },
-  "inbox-add-existing":()=>{const ids=$$('[name="inbox-media"]:checked').map(el=>el.value);if(P.rows.length+ids.length>200)throw new Error("单批最多 200 个");ids.map(beautyMedia).forEach(m=>addInboxRow(m));closeModal(true);render();},
-  "inbox-commit":()=>commitInbox(false),
-  "inbox-commit-current":()=>commitInbox(true),
+  "inbox-add-existing":async()=>{const ids=$$('[name="inbox-media"]:checked').map(el=>el.value);if(P.rows.length+ids.length>200)throw new Error("单批最多 200 个");ids.map(beautyMedia).forEach(m=>addInboxRow(m));closeModal(true);render();if(inboxRowsReady())await commitInbox();},
+  "inbox-commit":commitInbox,
   "review-prev":()=>{P.index=Math.max(0,P.index-1);render();},
   "review-next":()=>{P.index++;render();},
   "review-at":id=>{P.index=Number(id);render();},
