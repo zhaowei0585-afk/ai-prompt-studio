@@ -102,6 +102,11 @@ function defaultCharacterPrompt(d,c={},picked={}) {
     "避免夸张透视和遮挡；三视图用于后续本地 ComfyUI 角色一致性。"
   ].filter(Boolean).join("\n");
 }
+function preserveCharacterPrompt(text, baseline) {
+  const current=String(text || "").trim();
+  const missing=String(baseline || "").split("\n").map(s=>s.trim()).filter(line=>line&&!current.includes(line));
+  return [current,...missing].filter(Boolean).join("\n");
+}
 function beautyCharacterView() {
   const d=beautyDraft(), picked=beautyCharacterRef(), c=picked.version?.content || {};
   const text=(key,fallback="")=>characterValue(d,c,key,fallback);
@@ -307,9 +312,10 @@ async function beautyCompose(target) {
   let input,pending;
   if(target==="character"){
     const images=[...new Set([...(d.character_reference_media_ids || []),...(d.outfit_media_ids || []),...(d.character_media_ids || [])])].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
+    const picked=beautyCharacterRef(), baseline=defaultCharacterPrompt(d,picked.version?.content || {},picked);
     input={stage:"B04",episode:B.id || "__character__",scope:"image",source_ids:[],context_ids:[],media_ids:d.vision?images:[],
-      extra:`只生成角色三视图 image_prompt，不生成视频词。\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材 Type：${bodyTypeText(d) || "默认"}。\n身材补充：${d.body_notes || "无"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭生成方式：${{merge:"穿搭参考图直接换装：人物三视图只保留身份、脸和身材，服装完全以穿搭参考图为准，禁止混合两套穿搭",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
-    pending={project:S.project.project.id,id:B.id,revision:beautyWork()?.head || 0,input,target,vision:!!d.vision};
+      extra:`只生成角色三视图 image_prompt，不生成视频词。\n优化目标：在不删减关键约束的前提下扩写为更适合生图的提示词。\n当前三视图提示词原文如下，必须保留所有约束，不得压缩成摘要：\n${baseline}\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材 Type：${bodyTypeText(d) || "默认"}。\n身材补充：${d.body_notes || "无"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭生成方式：${{merge:"穿搭参考图直接换装：人物三视图只保留身份、脸和身材，服装完全以穿搭参考图为准，禁止混合两套穿搭",keep:"沿用当前三视图穿搭",text:"只按文字描述生成穿搭"}[d.outfit_strategy || "merge"]}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
+    pending={project:S.project.project.id,id:B.id,revision:beautyWork()?.head || 0,input,target,vision:!!d.vision,baseline};
   }else{
     const e=await beautyEnsureSaved(), image=beautyTake(e.id);
     if(target==="video"&&d.generation_route==="i2v"&&!image)throw new Error("图生视频路线请先选定当前图片");
@@ -339,7 +345,7 @@ function beautyLoadResult(result, run) {
   if(typeof result[key]!=="string" || !result[key].trim())throw new Error("结果缺少 "+key+" 正文");
   const d=beautyDraft();
   if(p.target==="character"){
-    d.character_prompt=result[key];d.vision=p.vision;S.dirty=true;closeModal(true);render();toast("三视图提示词已载入，生成结果后仍停留在本节点确认");
+    d.character_prompt=preserveCharacterPrompt(result[key],p.baseline);d.vision=p.vision;S.dirty=true;closeModal(true);render();toast("三视图提示词已载入，生成结果后仍停留在本节点确认");
     return;
   }
   if(p.target!=="video")beautyClearVideo();
