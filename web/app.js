@@ -2,13 +2,14 @@
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const S = {boot:null, project:null, space:localStorage.getItem("studio.space")==="beauty"?"beauty":"drama", page:"overview", stage:"M01", episode:localStorage.getItem("studio.episode") || "EP001", dirty:false, modalDirty:false, preview:null, stageDraft:null};
+const S = {boot:null, project:null, space:localStorage.getItem("studio.space")==="beauty"?"beauty":"drama", page:"overview", stage:"M00", episode:localStorage.getItem("studio.episode") || "EP001", dirty:false, modalDirty:false, preview:null, stageDraft:null};
 const titles = {overview:"制作总览",sources:"来源素材",stages:"创作流程",assets:"角色与资产",shots:"镜头工作台",attempts:"试片与返修",recipes:"配方与作品",profiles:"工作流档案",templates:"提示词模板"};
-const dramaTitles = {overview:"漫剧生产台",sources:"素材与定位",stages:"剧本与分镜",assets:"角色一致性",shots:"批量出图",attempts:"图生视频",recipes:"成片复盘",profiles:"可选工作流档案",templates:"流程模板"};
+const dramaTitles = {overview:"行动中心",pipeline:"生产流程",inbox:"素材箱",sources:"来源素材",stages:"阶段编辑",assets:"角色与资产",shots:"镜头详情",attempts:"结果档案",recipes:"配方与发布",profiles:"工作流档案",templates:"提示词模板"};
 const tracks = {drama:"AI 漫剧",daily:"人物 · 日常",outfit:"人物 · 穿搭",dance:"人物 · 舞蹈"};
 const projectSpace = p => p.track === "drama" ? "drama" : "beauty";
-const beautyTitles = {"beauty-create":"快速创作","beauty-characters":"人物库","beauty-library":"作品与收藏"};
-const entities = kind => (S.project?.entities || []).filter(e => !kind || e.kind === kind);
+const beautyTitles = {overview:"行动中心","beauty-create":"生产流程",inbox:"素材箱","beauty-characters":"人物库","beauty-library":"历史作品"};
+const trashed = (id, revision) => (S.project?.trash || []).some(t=>t.target===id&&(t.kind==="entity"||t.kind==="version"&&t.revision===revision));
+const entities = kind => (S.project?.entities || []).filter(e => (!kind || e.kind === kind) && !trashed(e.id) && e.versions.some(v=>!trashed(e.id,v.revision)));
 const entity = id => entities().find(e => e.id === id);
 const version = (e, rev) => e?.versions.find(v => v.revision === (rev || e.head));
 const accepted = e => e?.accepted ? version(e, e.accepted) : null;
@@ -61,13 +62,14 @@ async function boot(projectId) {
     S.project = await api("/api/projects/" + selected.id);
     localStorage.setItem("studio.project", selected.id);
     localStorage.setItem("studio.project."+S.space,selected.id);
-    if (S.project.project.track === "drama" && !["M01","M02","M03","Q01","Q02"].includes(S.stage)) S.stage = "M01";
+    if (S.project.project.track === "drama" && !["M00","M01","M02","M03","Q01","Q02"].includes(S.stage)) S.stage = "M00";
   } else {
     S.project = null;
     localStorage.removeItem("studio.project");
   }
   if(changed){
     beautyReset();
+    productionReset();
     if(S.space==="beauty"&&selected){
       const previous=localStorage.getItem("studio.beauty.work."+selected.id);
       if(entity(previous)?.kind==="shot")B.id=previous;
@@ -76,27 +78,33 @@ async function boot(projectId) {
   if(S.space==="beauty"&&!beautyTitles[S.page])S.page="beauty-create";
   if(S.space==="drama"&&!dramaTitles[S.page])S.page="overview";
   $("#episode").value = S.episode;
+  await productionLoad();
   render();
 }
 async function refresh() {
   S.project = await api("/api/projects/" + S.project.project.id);
+  await productionLoad();
   render();
 }
 function canLeave() {
-  if(B.saving){toast("作品正在保存，请稍候");return false;}
+  if(B.saving||P.busy){toast("正在保存或导入，请稍候");return false;}
   return !S.dirty || confirm("当前有未保存的编辑，离开会丢弃这些编辑。继续离开？");
 }
 function navigate(page, stage) {
   if (!canLeave()) return;
   if(S.space==="beauty"&&S.dirty){B.draft=null;B.extraDeps=[];B.historyDeps=null;}
   S.dirty = false; S.stageDraft = null; S.preview = null; S.templateDraft = undefined; S.page = page;
+  P.promptDraft=null;P.voiceDraft=null;
   if (stage) S.stage = stage;
   render();
 }
 function render() {
   const labels = S.space === "drama" ? dramaTitles : beautyTitles;
   if(!labels[S.page])S.page=S.space==="beauty"?"beauty-create":"overview";
-  $("#nav").innerHTML=Object.entries(labels).map(([page,title],i)=>`<button data-page="${page}" class="${S.page===page?"active":""}"><span>${String(i+1).padStart(2,"0")}</span><em>${title}</em></button>`).join("");
+  const mainPages=S.space==="drama"?["overview","pipeline","inbox"]:["overview","beauty-create","inbox","beauty-library"];
+  const navButton=([page,title])=>`<button data-page="${page}" class="${S.page===page?"active":""}"><em>${title}</em></button>`;
+  $("#nav").innerHTML=mainPages.map(page=>navButton([page,labels[page]])).join("")+
+    `<details ${mainPages.includes(S.page)?"":"open"}><summary>项目详情与历史</summary>${Object.entries(labels).filter(([p])=>!mainPages.includes(p)).map(navButton).join("")}</details>`;
   $$('.workspace-tabs [role=tab]').forEach(b=>{
     const active=b.dataset.id===S.space;
     b.setAttribute("aria-selected",String(active));b.tabIndex=active?0:-1;
@@ -111,18 +119,18 @@ function render() {
     b.classList.toggle("active", b.dataset.page === S.page);
     const text=b.querySelector("em"); if(text) text.textContent=labels[b.dataset.page];
   });
-  $("#content").innerHTML = !S.project ? welcome() : S.space==="beauty" ? beautyView() : ({
+  $("#content").innerHTML = !S.project ? welcome() : productionView() ?? (S.space==="beauty" ? beautyView() : ({
     overview:overviewView, sources:sourcesView, stages:stagesView, assets:assetsView, shots:shotsView,
     attempts:attemptsView, recipes:recipesView, profiles:profilesView, templates:templatesView
-  })[S.page]();
+  })[S.page]());
 }
 function welcome() {
-  if(S.space==="beauty")return `<div class="hero welcome"><span class="hero-tag">AI 美女 / 一位人物，多种生活</span><h2>一个想法，<br>一张满意的图。</h2><p>选人物与玩法，生成提示词，到你常用的 AI 平台出图。<br>回填后即可完成作品，也可以继续让图片动起来。</p><div class="row">${btn("创建美女项目 →","new-project","","primary")}${btn("恢复工程","restore")}</div></div>`;
-  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 故事到镜头</span><h2>把故事直接变成<br>可以批量生产的漫剧镜头。</h2><p>先生成剧本与 JSON 分镜，再锁角色、批量出图、图生视频。<br>复制提示词到公开 AI 平台生成，回到这里选片与返修。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
+  if(S.space==="beauty")return `<div class="hero welcome"><span class="hero-tag">AI 美女 / 一位人物，多种生活</span><h2>选一个主题，<br>做出今天的视频。</h2><p>选择人物 → 选择今日主题 → 生成视频 → 导出。<br>提示词在这里整理，媒体到常用 AI 平台生成，再回来选片。</p><div class="row">${btn("创建美女项目 →","new-project","","primary")}${btn("恢复工程","restore")}</div></div>`;
+  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集六步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>批量回填、连续判片，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
 }
 function stageCodes() {
   if(S.project.project.track === "drama"){
-    const codes=["M01","M02","M03"];
+    const codes=["M00","M01","M02","M03"];
     if(S.stage==="Q01"||S.stage==="Q02")codes.push(S.stage);
     return codes;
   }
@@ -130,9 +138,9 @@ function stageCodes() {
 }
 const stageEntity = () => entities("stage").find(e => e.id === `stage-${S.stage}-${S.episode}`);
 function stateBadge(e) {
-  const issues = S.project.checks[e.id] || [];
+  const issues = (S.project.checks[e.id] || []).filter(x=>/版本|上游|回收站/.test(x));
   return issues.length ? badge(`${issues.length} 项待复核`, "warn") :
-    e.accepted === e.head ? badge("已接受", "ok") : badge(e.accepted ? `新草稿 · 使用 v${e.accepted}` : "草稿");
+    e.accepted === e.head ? badge(`当前版本 v${e.accepted}`, "ok") : badge(e.accepted ? `草稿 v${e.head} · 当前仍为 v${e.accepted}` : "草稿 · 尚无当前版本","warn");
 }
 function dramaOverview(p, shots, attempts, chosen, stats) {
   const assets=entities("asset"), selectedAssets=assets.filter(e=>version(e).content.media_ids?.length).length;
@@ -142,7 +150,7 @@ function dramaOverview(p, shots, attempts, chosen, stats) {
     ["02","角色一致性","选定参考图",`统一人物与造型 · ${selectedAssets}/${assets.length} 已选图`,"goto-page","assets",assets.length?"继续":"待建立"],
     ["03","批量出图","约 20–30 分钟",`标准化图片词、ControlNet 姿态和人工选图 · ${imageReady}/${shots.length} 有图片词`,"stage","M02",shots.length?"继续":"待分镜"],
     ["04","图生视频","约 30–60 分钟",`选定分镜图转动态片段 · ${attempts.length} 次试片`,"stage","M03",attempts.length?"继续":"待出图"],
-    ["05","成片复盘","剪辑后",`导出素材、发布并沉淀配方 · ${chosen.length} 镜已采用`,"goto-page","recipes",chosen.length?"复盘":"待选片"]
+    ["05","成片复盘","剪辑后",`导出素材、发布并沉淀配方 · ${chosen.length} 镜已有当前结果`,"goto-page","recipes",chosen.length?"复盘":"待选片"]
   ];
   return `<div class="hero drama-hero"><span class="hero-tag">AI 漫剧生产线 / ${esc(p.format)}</span><h2>${esc(p.name)}</h2><p>故事转分镜，统一人物后生成图片与视频提示词。复制到公开 AI 平台生产，再回填、选片和剪辑。</p><div class="row">${btn("开始剧本分镜 →","stage","M01","primary")}${btn("导入小说 / 漫画","goto-sources")}${btn("导出生产包","handoff")}</div></div>
     <div class="stats">${stats.map(([label,n,desc]) => `<div class="stat"><span>${label}</span><strong>${n}</strong><small>${desc}</small></div>`).join("")}</div>
@@ -158,17 +166,17 @@ function overviewView() {
     const firstTake = attempts.find(e => version(e,1).content.prompt_ref.id === shot);
     if (S.project.selected[shot]?.id === firstTake?.id) first++;
   }
-  const stats = [["镜头", shots.length, "按全项目统计"],["已选片", chosen.length, "已检查并采用实际结果"],
-    ["首轮采用率", tried.size ? `${Math.round(first / tried.size * 100)}%` : "—", "首次尝试即被采用的镜头占比"],
+  const stats = [["镜头", shots.length, "按全项目统计"],["已选片", chosen.length, "已检查并设为当前结果"],
+    ["首轮选中率", tried.size ? `${Math.round(first / tried.size * 100)}%` : "—", "首次尝试即设为当前结果的镜头占比"],
     ["尝试 / 可用镜头", chosen.length ? (attempts.length / chosen.length).toFixed(1) : "—", "包含失败与待检查尝试"]];
   if(p.track === "drama") return dramaOverview(p,shots,attempts,chosen,stats);
   const blockers = shots.flatMap(e => (S.project.checks[e.id] || []).slice(0,2).map(x => `${e.title}：${x}`)).slice(0,5);
-  return `<div class="hero"><span class="hero-tag">${esc(tracks[p.track])} / ${esc(p.format)}</span><h2>${esc(p.name)}</h2><p>${esc(p.style || "画风尚未填写")} · 每集目标 ${esc(p.duration)} 秒。当前制作 ${esc(S.episode)}。</p><div class="row">${btn("继续创作 →","goto-stages","","primary")}${btn("导入素材","goto-sources")}${btn("恢复工程","restore")}</div></div><div class="stats">${stats.map(([label,n,desc]) => `<div class="stat"><span>${label}</span><strong>${n}</strong><small>${desc}</small></div>`).join("")}</div>${section("本集制作路径","每一步接受结果后，后续阶段即可引用。")}
+  return `<div class="hero"><span class="hero-tag">${esc(tracks[p.track])} / ${esc(p.format)}</span><h2>${esc(p.name)}</h2><p>${esc(p.style || "画风尚未填写")} · 每集目标 ${esc(p.duration)} 秒。当前制作 ${esc(S.episode)}。</p><div class="row">${btn("继续创作 →","goto-stages","","primary")}${btn("导入素材","goto-sources")}${btn("恢复工程","restore")}</div></div><div class="stats">${stats.map(([label,n,desc]) => `<div class="stat"><span>${label}</span><strong>${n}</strong><small>${desc}</small></div>`).join("")}</div>${section("本集制作路径","每一步设为当前版本后，后续阶段即可引用。")}
     <div class="grid">${stageCodes().map(code => {
       const info = S.boot.stages.find(s => s[0] === code);
       const e = entities("stage").find(e => e.id === `stage-${code}-${S.episode}`);
       return `<div class="card"><div class="number">${code}</div><h3>${info[1]}</h3><p>${info[2]}</p><footer>${e ? stateBadge(e) : badge("尚未开始")}${btn("进入 →","stage",code)}</footer></div>`;
-    }).join("")}</div>${section("接下来补齐","真实缺项会影响镜头交接，不影响继续写草稿。")}<div class="notice ${blockers.length ? "warn" : ""}">${esc(blockers.length ? blockers.join("\n") : shots.length ? "暂未发现镜头字段缺项。出片后仍需人工检查，再采用结果。" : "先导入来源素材，或从参考图、参考视频开始。另一台电脑的工作流信息可以稍后补齐。")}</div>`;
+    }).join("")}</div>${section("接下来补齐","真实缺项会影响镜头交接，不影响继续写草稿。")}<div class="notice ${blockers.length ? "warn" : ""}">${esc(blockers.length ? blockers.join("\n") : shots.length ? "暂未发现镜头字段缺项。出片后仍需人工检查，再设为当前结果。" : "先导入来源素材，或从参考图、参考视频开始。另一台电脑的工作流信息可以稍后补齐。")}</div>`;
 }
 function sourcesView() {
   const sources = entities("source");
@@ -193,36 +201,36 @@ function contextChecks(kind, name, selected) {
   const list = (kind === "source" ? entities(kind) : entities().filter(e => !["source","run","template"].includes(e.kind)))
     .filter(e => e.accepted && (kind === "source" || !e.episode || e.episode === S.episode || e.kind === "stage"));
   return `<div class="checks">${list.length ? list.map(e => check(`${e.title} · ${e.episode || "全局"} · v${e.accepted}`,name,e.id,
-    selected ? selected.includes(e.id) : kind !== "source" && e.kind !== "shot" && e.kind !== "attempt" && (!e.episode || e.episode === S.episode))).join("") : '<small>暂无已接受记录。先保存并接受上游内容。</small>'}</div>`;
+    selected ? selected.includes(e.id) : kind !== "source" && e.kind !== "shot" && e.kind !== "attempt" && (!e.episode || e.episode === S.episode))).join("") : '<small>暂无当前记录。先保存上游内容并设为当前版本。</small>'}</div>`;
 }
 function stagesView() {
   const e = stageEntity(), v = version(e), draft = S.stageDraft || v?.content || {};
   const inputs = S.preview?.input || v?.meta?.input;
   const info = S.boot.stages.find(s => s[0] === S.stage);
-  const upstream={M01:[],M02:["M01"],M03:["M02"],D01:[],D02:["D01"],D03:["D02"],D04:["D03"],D05:["D03","D04"],D06:["D05"],B01:[],B02:["B01"],B03:["B01"],Q01:[],Q02:[]}[S.stage] || [];
+  const upstream={M00:[],M01:["M00"],M02:["M01"],M03:["M02"],D01:[],D02:["D01"],D03:["D02"],D04:["D03"],D05:["D03","D04"],D06:["D05"],B01:[],B02:["B01"],B03:["B01"],Q01:[],Q02:[]}[S.stage] || [];
   const defaults=upstream.map(code=>`stage-${code}-${S.episode}`);
   if(["M02","M03","D04","D05","D06","B02","B03"].includes(S.stage)){
     defaults.push(...entities("asset").filter(accepted).map(e=>e.id));
     const profile=entities("profile").find(accepted);if(profile)defaults.push(profile.id);
   }
   if(["M02","M03"].includes(S.stage)) defaults.push(...episodeEntities("shot").filter(accepted).map(e=>e.id));
-  const sourceDefaults=inputs?.source_ids || (S.stage==="M01" ? entities("source").filter(accepted).map(e=>e.id) : []);
-  const contextBlock=S.stage==="M01"?"":`<label class="field">关联设定与上游版本</label>${contextChecks(null,"context_ids",inputs?.context_ids || defaults)}`;
-  return `<div class="steps">${stageCodes().map(c => `<button data-action="stage" data-id="${c}" class="${c === S.stage ? "active" : ""}"><small>${c}</small>${S.boot.stages.find(s => s[0] === c)[1]}</button>`).join("")}</div><div class="split">
-    <div class="card"><h3>${S.project.project.track==="drama"?"这一步需要什么":"本次输入"}</h3><p class="muted">${S.project.project.track==="drama"?"系统已经按当前步骤预选上游，只需确认范围。":"选择范围后，先预览完整指令。"}</p><form id="context-form">
-    ${field("章节 / 页格 / 时间范围","scope",inputs?.scope || "")}<label class="field">来源范围（需先接受来源）</label>${contextChecks("source","source_ids",sourceDefaults)}
+  const sourceDefaults=inputs?.source_ids || (["M00","M01"].includes(S.stage) ? entities("source").filter(accepted).map(e=>e.id) : []);
+  const contextBlock=S.stage==="M00"?"":`<label class="field">关联设定与上游版本</label>${contextChecks(null,"context_ids",inputs?.context_ids || defaults)}`;
+  return `<div class="stage-workspace">
+    <details class="card"><summary>AI 辅助 · 来源、参考素材与生成前预览</summary><form id="context-form">
+    ${field("章节 / 页格 / 时间范围","scope",inputs?.scope || "")}<label class="field">来源范围（需先设为当前版本）</label>${contextChecks("source","source_ids",sourceDefaults)}
     ${contextBlock}
     <label class="field">发送给视觉模型的图片（最多 8 张）</label>${mediaChecks("media_ids",inputs?.media_ids || [],"image/")}
     ${area("本次目标与补充要求","extra",inputs?.extra || "", "例如：本集 60 秒、前三秒出现冲突、只做 12 个镜头。",3)}
-    ${btn("生成前预览","compose","","primary")}</form></div>
+    ${btn("生成前预览","compose")}</form></details>
     <div class="card"><div class="row between"><div><span class="eyebrow">${S.stage} / ${esc(S.episode)}</span><h2>${info[1]}</h2></div>${e ? stateBadge(e) : badge("尚未保存")}</div>
-    <p class="muted">${S.project.project.track==="drama"?"模型生成的是可编辑生产稿。先检查，再保存并采用。":"可粘贴外部 AI 的 JSON 或 Markdown；保存后再接受，后续阶段才会使用。"}</p>
+    <p class="muted">直接编写或粘贴外部 AI 的结果。保存草稿保留编辑；设为当前版本后，下一步才会引用。</p>
     <label class="field">阶段结果 <span class="dirty" id="stage-dirty"></span><textarea id="stage-output" class="editor" spellcheck="false">${esc(draft.structured ? JSON.stringify(draft.structured,null,2) : draft.text || "")}</textarea></label>
-    <div class="row">${S.project.project.track==="drama"&&S.stage.startsWith("M")?btn("保存并采用","save-accept-stage","","primary"):btn("保存草稿","save-stage","","primary")+btn("采用这一版","accept-stage")}${btn("同步到镜头 / 资产","import-structured")}</div>
+    <div class="row">${btn("保存草稿","save-stage")}${btn("保存并设为当前版本","save-accept-stage","","primary")}${e&&e.head!==e.accepted?btn("设为当前版本","accept-stage"):""}${S.stage!=="M00"?btn("同步镜头与资产","import-structured"):""}</div>
     ${e ? history(e,"stage-history") : ""}${runList()}</div></div>`;
 }
 function history(e, action) {
-  return `<details class="history"><summary>版本记录 · ${e.versions.length} 个修订（恢复会另存新版本）</summary>${e.versions.slice().reverse().map(v => `<span class="version-row">${btn(`v${v.revision}${e.accepted === v.revision ? " · 已采用" : ""} · ${v.created.slice(0,16).replace("T"," ")}`,action,`${e.id}|${v.revision}`)}${["source","stage"].includes(e.kind)&&e.accepted!==v.revision?iconBtn("delete-version",`${e.id}|${v.revision}`,`删除 ${e.title} v${v.revision}`):""}</span>`).join("")}${btn("对比最近两版","diff",e.id)}</details>`;
+  return `<details class="history"><summary>版本记录（载入历史会另存新版本）</summary>${e.versions.filter(v=>!trashed(e.id,v.revision)).slice().reverse().map(v => `<span class="version-row">${btn(`v${v.revision}${e.accepted === v.revision ? " · 当前版本" : ""} · ${v.created.slice(0,16).replace("T"," ")}`,action,`${e.id}|${v.revision}`)}${["source","stage"].includes(e.kind)&&e.accepted!==v.revision?iconBtn("delete-version",`${e.id}|${v.revision}`,`移入回收站 ${e.title} v${v.revision}`):""}</span>`).join("")}${btn("对比最近两版","diff",e.id)}</details>`;
 }
 function runList() {
   const runs = entities("run").filter(e => e.episode === S.episode && version(e).meta.stage === S.stage).slice(-5).reverse();
@@ -238,7 +246,7 @@ function assetsView() {
 function shotsView() {
   const list = episodeEntities("shot"), drama=S.project.project.track==="drama";
   const total = list.reduce((n,e) => n + Number(version(e).content.duration),0);
-  return section(`${S.episode} · ${drama?"分镜出图队列":"镜头清单"}`,drama?`${list.length} 镜 / ${total} 秒。统一角色词后批量复制图片提示词，出图后把选中的图绑定为首帧。`:`${list.length} 镜 / 目标剪辑时长合计 ${total} 秒。接受提示词与采用实际结果分开记录。`,
+  return section(`${S.episode} · ${drama?"分镜出图队列":"镜头清单"}`,drama?`${list.length} 镜 / ${total} 秒。统一角色词后批量复制图片提示词，出图后把选中的图绑定为首帧。`:`${list.length} 镜 / 目标剪辑时长合计 ${total} 秒。提示词当前版本与当前实际结果分开记录。`,
     (drama?btn("生成 / 优化出图词","stage","M02")+btn("复制全部图片词","copy-all-images"):"")+btn("＋ 添加镜头","edit-shot","","primary")) +
     list.map((e,i) => {
       const c = version(e).content, issues = S.project.checks[e.id] || [], take = S.project.selected[e.id];
@@ -249,9 +257,9 @@ function shotsView() {
 function attemptsView() {
   const list = episodeEntities("attempt").slice().reverse(), drama=S.project.project.track==="drama", shots=episodeEntities("shot");
   const queue=drama&&shots.length?`${section("待生成动态镜头","复制视频词到支持图生视频的平台，同时上传选定的分镜图。")}<div class="card table-wrap"><table><thead><tr><th>镜号</th><th>起点 → 动作 → 落点</th><th>视频提示词</th><th></th></tr></thead><tbody>${shots.map(e=>{const c=version(e).content;return `<tr><td>${esc(e.id)}</td><td>${esc(c.start)} → ${esc(c.action)} → ${esc(c.end)}</td><td>${esc(brief(c.video_prompt)||"待生成")}</td><td>${btn("复制","copy-video",e.id)} ${btn("回填","new-attempt",e.id)}</td></tr>`}).join("")}</tbody></table></div>`:"";
-  return section(drama?"图生视频与选片":"保留失败，选出可用的一条",drama?"一镜一个动作；实际视频、参数和问题时间点都回填到对应提示词版本。":"只收到文字时按用户描述记录；勾选已检查并挂上实际结果后才能采用。",(drama?btn("生成视频提示词","stage","M03"):"")+btn("＋ 回填生成结果","new-attempt","","primary"))+queue+
+  return section(drama?"图生视频与选片":"保留失败，选出可用的一条",drama?"一镜一个动作；实际视频、参数和问题时间点都回填到对应提示词版本。":"只收到文字时按用户描述记录；勾选已检查并挂上实际结果后才能设为当前结果。",(drama?btn("生成视频提示词","stage","M03"):"")+btn("＋ 回填生成结果","new-attempt","","primary"))+queue+
     section("试片记录","失败结果也保留，便于只改一个变量。")+
-    `<div class="grid">${list.map(e => {const c=version(e).content; const selected=S.project.selected[c.prompt_ref.id]; return `<div class="card"><div class="number">${esc(c.prompt_ref.id)} · PROMPT V${c.prompt_ref.revision}</div><h3>${esc(e.title)}</h3><div class="row">${badge({unreviewed:"待检查",accepted:"可用",rejected:"需返修"}[c.judgment],c.judgment==="accepted"?"ok":"warn")}${selected?.id === e.id ? badge(`已采用 v${selected.revision}`,"ok") : ""}</div><p>${esc(c.feedback || "尚未填写预期与实际差异")}</p><p>${c.user_reviewed ? "由用户检查媒体" : "未检查媒体 / 用户描述"}</p><div class="media-grid">${(c.result_media || []).map(id => S.project.media.find(m=>m.id===id)).filter(Boolean).slice(0,1).map(m=>mediaCard(m,true)).join("")}</div><footer>${btn("详情 / 修改","edit-attempt",e.id)}${btn("采用此结果","select-take",e.id)}${btn("返修 →","repair",e.id)}</footer></div>`;}).join("")}</div>`+(!list.length ? empty("从 ComfyUI 带回第一条动态片段","记录实际提示词、参考图和参数；未检查媒体时不会标为可用。") : "");
+    `<div class="grid">${list.map(e => {const c=version(e).content; const selected=S.project.selected[c.prompt_ref.id]; return `<div class="card"><div class="number">${esc(c.prompt_ref.id)} · PROMPT V${c.prompt_ref.revision}</div><h3>${esc(e.title)}</h3><div class="row">${badge({unreviewed:"待检查",accepted:"可用",rejected:"需返修"}[c.judgment],c.judgment==="accepted"?"ok":"warn")}${selected?.id === e.id ? badge(`当前结果 v${selected.revision}`,"ok") : ""}</div><p>${esc(c.feedback || "尚未填写预期与实际差异")}</p><p>${c.user_reviewed ? "由用户检查媒体" : "未检查媒体 / 用户描述"}</p><div class="media-grid">${(c.result_media || []).map(id => S.project.media.find(m=>m.id===id)).filter(Boolean).slice(0,1).map(m=>mediaCard(m,true)).join("")}</div><footer>${btn("详情 / 修改","edit-attempt",e.id)}${btn("设为当前结果","select-take",e.id)}${btn("返修 →","repair",e.id)}</footer></div>`;}).join("")}</div>`+(!list.length ? empty("从 ComfyUI 带回第一条动态片段","记录实际提示词、参考图和参数；未检查媒体时不会标为可用。") : "");
 }
 function profilesView() {
   return section("可选工作流档案","使用公开 AI 平台时可以跳过；只有需要 ComfyUI 槽位和参数管理时才填写。",btn("＋ 添加档案","edit-profile","","primary"))+
@@ -259,25 +267,26 @@ function profilesView() {
 }
 function recipesView() {
   const drama=S.project.project.track==="drama";
-  const intro=drama?section("成片交付","工作台打包已采用片段、提示词、镜头表和声音备注；配音、字幕与剪辑在外部完成。",btn("导出剪辑交接包","handoff","","primary"))+'<div class="notice">建议文件名：项目_集号_镜号_提示词版本_试片号。发布后只回填同一观察窗口的数据。</div>':"";
+  const intro=drama?section("成片交付","工作台打包当前片段、提示词、镜头表和声音备注；配音、字幕与剪辑在外部完成。",btn("导出剪辑交接包","handoff","","primary"))+'<div class="notice">建议文件名：项目_集号_镜号_提示词版本_试片号。发布后只回填同一观察窗口的数据。</div>':"";
   return intro+section(drama?"成功配方":"可复用配方","成功后提炼必要输入、模型版本、参数和失败边界。",(drama?btn("AI 复盘","stage","Q02"):"")+btn("＋ 记录配方","edit-recipe","","primary"))+
     `<div class="grid">${entities("recipe").map(e => `<div class="card"><h3>${esc(e.title)}</h3><p class="excerpt">${esc(version(e).content.text)}</p><footer>${stateBadge(e)}${btn("查看 / 编辑","edit-recipe",e.id)}</footer></div>`).join("")}</div>`+
     section("发布记录","手工登记同一观察窗口的数据，并保留所用试片版本。",btn("＋ 记录作品","edit-publication"))+
     `<div class="card table-wrap"><table><thead><tr><th>作品</th><th>观察窗口</th><th>播放</th><th>完播率</th><th>关联镜头</th><th></th></tr></thead><tbody>${entities("publication").map(e => {const c=version(e).content;return `<tr><td>${esc(e.title)}</td><td>${esc(c.window || "未填")}</td><td>${esc(c.views ?? "—")}</td><td>${c.completion == null ? "—" : esc(c.completion)+"%"}</td><td>${c.takes?.length || 0}</td><td>${btn("查看","edit-publication",e.id)}</td></tr>`;}).join("") || '<tr><td colspan="6">暂无作品记录。</td></tr>'}</tbody></table></div>`;
 }
 function templatesView() {
-  const codes=S.project.project.track==="drama"?["P00","M01","M02","M03","Q01","Q02"]:
+  const codes=S.project.project.track==="drama"?["P00","M00","M01","M02","M03","Q01","Q02"]:
     ["P00","B01",S.project.project.track==="dance"?"B03":"B02","D04","D05","D06","Q01","Q02"];
   const code=codes.includes(S.templateCode)?S.templateCode:"P00", e = entity("template-"+code);
   S.templateCode=code;
   return section("项目提示词模板","修改只影响本项目的后续生成。每次生成保存实际指令和模板版本。")+
     `<div class="card">${select("选择阶段","template-code",codes.map(k=>[k,`${k} · ${S.boot.templates[k].title}`]),code)}
     ${area("模板正文","template-body",S.templateDraft ?? version(e)?.content.text ?? S.boot.templates[code].body,"占位符会引导模型读取本次上下文；所选来源与版本附在完整指令中。",16)}
-    <div class="row">${btn("保存并接受模板新版本","save-template","","primary")}${btn("载入内置模板","reset-template")}</div>${e ? history(e,"template-history") : ""}</div>`;
+    <div class="row">${btn("保存并设为当前版本","save-template","","primary")}${btn("载入内置模板","reset-template")}</div>${e ? history(e,"template-history") : ""}</div>`;
 }
 
 function modal(title, body, footer = "", formId = "") {
   const d = $("#modal");
+  d.className="";
   S.modalDirty = false;
   d.innerHTML = `<div class="modal-head"><h2 id="modal-title">${esc(title)}</h2>${btn("×","close")}</div>${formId ? `<form id="${formId}">` : ""}<div class="modal-body"><div class="inline-error" id="modal-error"></div>${body}</div>${footer ? `<div class="modal-foot">${footer}</div>` : ""}${formId ? "</form>" : ""}`;
   if (!d.open) d.showModal();
@@ -288,19 +297,19 @@ function closeModal(force = false) {
 }
 function deleteProjectDialog() {
   const p=S.project.project;
-  modal("删除废弃项目",`<div class="notice warn">将永久删除项目中的素材、版本、试片和发布记录。此操作不可撤销，建议先下载工程备份。</div>${field("输入项目名称确认","confirmation","","text",p.name,"required autocomplete=off")}`,
-    btn("取消","close")+btn("永久删除项目","confirm-delete-project","","danger"),"delete-project-form");
+  modal("项目移入回收站",`<div class="notice">项目、版本和媒体保留至少 30 天，可从工作空间回收站恢复。只有主动永久清空项目才删除媒体。</div>${field("输入项目名称确认","confirmation","","text",p.name,"required autocomplete=off")}`,
+    btn("取消","close")+btn("移入回收站","confirm-delete-project","","danger"),"delete-project-form");
 }
 function deleteSourceDialog(id) {
   const e=entity(id);
-  modal("删除上游素材",`<div class="notice warn">只有未被剧本、资产或镜头引用的素材才能删除。素材库里的原始媒体文件不会一起删除。</div>${field("输入素材名称确认","confirmation","","text",e.title,"required autocomplete=off")}`,
-    btn("取消","close")+btn("删除素材","confirm-delete-source",id,"danger"),"delete-source-form");
+  modal("素材移入回收站",`<div class="notice warn">只有未被剧本、资产或镜头引用的素材才能移入回收站。素材库里的原始媒体文件不会一起删除。</div>${field("输入素材名称确认","confirmation","","text",e.title,"required autocomplete=off")}`,
+    btn("取消","close")+btn("移入回收站","confirm-delete-source",id,"danger"),"delete-source-form");
 }
 async function deleteVersion(id) {
   const [entityId,revision]=id.split("|"), e=entity(entityId);
-  if(!confirm(`删除「${e.title}」v${revision}？当前采用版和被下游引用的版本不会被允许删除。`))return;
+  if(!confirm(`将「${e.title}」v${revision} 移入回收站？当前版本和被下游引用的版本不能移入。`))return;
   await projectAPI("delete-version",{id:entityId,revision:Number(revision)});
-  closeModal(true);await refresh();toast(`已删除 ${e.title} v${revision}`);
+  closeModal(true);await refresh();toast(`${e.title} v${revision} 已移入回收站`);
 }
 function editor(kind, id = "", initial = {}, rev) {
   const e = entity(id), v = version(e,rev), c = v?.content || initial;
@@ -328,8 +337,8 @@ function editor(kind, id = "", initial = {}, rev) {
     body += `<div class="form-grid">${field("镜号（创建后固定）","key",e?.id || initial.key || `${S.episode}-S${String(episodeEntities("shot").length+1).padStart(3,"0")}`,"text","",e?"readonly":"required pattern=[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}")}${field("目标剪辑时长 / 秒","duration",c.duration || 5,"number","","required min=0.1 max=600 step=0.1")}${field("章节 / 场次 / 时间码","source",c.source || "")}${field("景别 / 机位 / 运镜","camera",c.camera || "")}</div>`;
     body += field("起始状态","start",c.start || "")+field("主要动作","action",c.action || "")+field("结束状态","end",c.end || "");
     body += field("生成平台 / 模型（可选）","platform",c.platform || "","text","记录实际使用的平台和模型名称");
-    body += `<details ${profileRef?"open":""}><summary>可选：ComfyUI 工作流</summary>`+select("工作流档案（引用已接受版本）","profile",[["","公开平台 / 不绑定"],...entities("profile").filter(accepted).map(e=>[e.id,`${e.title} · v${e.accepted}`])],profileRef?.id || "")+"</details>";
-    body += '<div id="shot-profile-fields"></div><label class="field">关联资产（使用已接受版本）</label><div class="checks">'+entities("asset").filter(accepted).map(a=>check(`${a.title} · v${a.accepted}`,"assets",a.id,assetRefs.includes(a.id))).join("")+'</div>';
+    body += `<details ${profileRef?"open":""}><summary>可选：ComfyUI 工作流</summary>`+select("工作流档案（引用当前版本）","profile",[["","公开平台 / 不绑定"],...entities("profile").filter(accepted).map(e=>[e.id,`${e.title} · v${e.accepted}`])],profileRef?.id || "")+"</details>";
+    body += '<div id="shot-profile-fields"></div><label class="field">关联资产（使用当前版本）</label><div class="checks">'+entities("asset").filter(accepted).map(a=>check(`${a.title} · v${a.accepted}`,"assets",a.id,assetRefs.includes(a.id))).join("")+'</div>';
     body += area("首帧图片提示词","image_prompt",c.image_prompt || "", "主体 + 静态动作 + 场景 + 构图 + 光线画风。",5);
     if(S.project.project.track==="drama") body += '<details><summary>可选：ControlNet 建议</summary>'+area("ControlNet 姿态 / 构图建议","controlnet",c.controlnet || "","不需要时留空。",3)+"</details>";
     body += area("视频提示词","video_prompt",c.video_prompt || "", "一镜一个主要动作；挂图说明和参数放在相邻字段。",6);
@@ -350,17 +359,16 @@ function editor(kind, id = "", initial = {}, rev) {
     body += check("我已实际检查所挂结果媒体","user_reviewed","yes",!!c.user_reviewed);
   } else if (kind === "recipe") {
     body += area("适用模型 / 必要输入 / 配方 / 已知失败边界","text",c.text || "", "可从 Q02 阶段提炼，避免把单次成功当通用规律。",9);
-    body += '<label class="field">关联已接受版本</label>'+contextChecks(null,"deps",(v?.deps || []).map(d=>d.id));
+    body += '<label class="field">关联当前版本</label>'+contextChecks(null,"deps",(v?.deps || []).map(d=>d.id));
   } else if (kind === "publication") {
     body += `<div class="form-grid">${field("作品链接 / 平台 ID","url",c.url || "")}${field("发布时间","published_at",c.published_at || "","datetime-local")}${field("观察窗口","window",c.window || "", "text","例如：发布后 24 小时")}${field("播放量","views",c.views ?? "","number","","min=0 step=1")}${field("完播率 / %","completion",c.completion ?? "","number","","min=0 max=100 step=0.01")}${field("点赞 / 评论 / 关注等","interactions",c.interactions || "")}</div>`;
     body += area("观察与下轮假设","text",c.text || "");
     body += '<div class="notice">新作品保存当前所有已选镜头版本。编辑旧作品保留原关联，便于追溯。</div>';
   }
-  if (e && v.deps.length && ["asset","shot"].includes(kind)) body += check("我已复核内容，保存时改用上游最新接受版本","rebase","yes");
+  if (e && v.deps.length && ["asset","shot"].includes(kind)) body += check("我已复核内容，保存时改用上游当前版本","rebase","yes");
   if (e) body += history(e,"edit-history");
-  const autoAccept = !["shot","attempt"].includes(kind);
   modal(e ? `编辑${{source:"来源",asset:"资产",profile:"档案",shot:"镜头",attempt:"试片",recipe:"配方",publication:"作品"}[kind]} · v${v.revision}` : "新增"+({source:"来源",asset:"资产",profile:"工作流档案",shot:"镜头",attempt:"试片",recipe:"配方",publication:"作品"}[kind]),
-    body,btn("取消","close")+`<button type="submit" class="primary">${autoAccept?"保存并接受":"保存新修订"}</button>`+(kind==="shot"&&e ? btn("接受当前已保存版本","accept-record",e.id):""),"record-form");
+    body,btn("取消","close")+'<button type="submit" name="intent" value="draft">保存草稿</button><button type="submit" name="intent" value="current" class="primary">保存并设为当前版本</button>'+(e&&e.head!==e.accepted ? btn("设为当前版本","accept-record",e.id):""),"record-form");
   if (kind === "shot") updateShotProfile(c);
   if (kind === "attempt") updateAttemptRevisions(c.prompt_ref?.revision);
 }
@@ -377,7 +385,7 @@ function updateAttemptRevisions(rev) {
   const e = entity($('#record-form [name=shot]').value);
   $("#attempt-revisions").innerHTML = select("当时实际使用的镜头版本","prompt_revision",e.versions.map(v=>[v.revision,`v${v.revision} · ${v.created.slice(0,16)}`]),rev || e.accepted || e.head);
 }
-async function saveRecord(form) {
+async function saveRecord(form, setCurrent = false) {
   const f = new FormData(form), data = Object.fromEntries(f), {kind,e,v} = S.edit;
   let c={}, deps=v?.deps || [], id=e?.id, episode=e?.episode || "";
   const get = name => data[name] || "";
@@ -398,15 +406,14 @@ async function saveRecord(form) {
     const shot=entity(get("shot")), prompt_ref={id:shot.id,revision:Number(get("prompt_revision"))};
     const prompt=version(shot,prompt_ref.revision);
     deps=[prompt_ref,...prompt.deps.filter(d=>entity(d.id)?.kind==="profile")];
-    c={prompt_ref,platform:get("platform"),actual_prompt:get("actual_prompt"),parameters:get("parameters"),input_media:f.getAll("input_media"),result_media:f.getAll("result_media"),feedback:get("feedback"),judgment:get("judgment"),user_reviewed:f.has("user_reviewed")};
+    c={...v?.content,prompt_ref,platform:get("platform"),actual_prompt:get("actual_prompt"),parameters:get("parameters"),input_media:f.getAll("input_media"),result_media:f.getAll("result_media"),feedback:get("feedback"),judgment:get("judgment"),user_reviewed:f.has("user_reviewed")};
     episode=shot.episode;
   }
   if (kind === "recipe") {c={text:get("text")};deps=f.getAll("deps").map(id=>ref(entity(id)));}
   if (kind === "publication") c={url:get("url"),published_at:get("published_at"),window:get("window"),views:get("views")===""?null:Number(get("views")),completion:get("completion")===""?null:Number(get("completion")),interactions:get("interactions"),text:get("text"),takes:v?.content.takes || Object.values(S.project.selected)};
   if (f.has("rebase")) deps=deps.map(d=>accepted(entity(d.id))?ref(entity(d.id)):d);
-  const saved=await projectAPI("save",{id,kind,title:get("title"),episode,base_revision:e?.head || 0,content:c,deps});
-  if (kind !== "shot") await projectAPI("accept",{id:saved.id,revision:saved.revision,expected_accepted:e?.accepted ?? null});
-  closeModal(true); S.dirty=false; await refresh(); toast("已保存，新修订保留了历史记录");
+  await projectAPI("save",{id,kind,title:get("title"),episode,base_revision:e?.head || 0,content:c,deps,set_current:setCurrent,expected_accepted:e?.accepted ?? null});
+  closeModal(true); await refresh(); toast(setCurrent?"已保存并设为当前版本":"草稿已保存，下游继续使用原当前版本");
 }
 function parseResult(text) {
   let cleaned=text.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
@@ -421,16 +428,17 @@ function parseResult(text) {
 }
 async function saveStage(shouldAccept = false) {
   const e=stageEntity(), c=parseResult($("#stage-output").value);
-  const built=S.preview || version(e)?.meta?.preview;
-  const saved=await projectAPI("save",{id:`stage-${S.stage}-${S.episode}`,kind:"stage",title:S.boot.stages.find(s=>s[0]===S.stage)[1],episode:S.episode,
-    base_revision:e?.head || 0,content:c,deps:built?.deps || version(e)?.deps || [],meta:{input:built?.input || version(e)?.meta?.input,preview:built}});
-  if(shouldAccept)await projectAPI("accept",{id:saved.id,revision:saved.revision,expected_accepted:e?.accepted??null});
-  S.dirty=false; S.stageDraft=null; await refresh(); toast(shouldAccept?"已保存并采用，可继续同步到生产卡片":"阶段草稿已保存；接受后可供后续引用");
+  const f=new FormData($("#context-form"));
+  const input={stage:S.stage,episode:S.episode,scope:f.get("scope"),extra:f.get("extra"),source_ids:f.getAll("source_ids"),context_ids:f.getAll("context_ids"),media_ids:f.getAll("media_ids")};
+  const built=S.preview?.deps?S.preview:{...await projectAPI("compose",input),input};
+  await projectAPI("save",{id:`stage-${S.stage}-${S.episode}`,kind:"stage",title:S.boot.stages.find(s=>s[0]===S.stage)[1],episode:S.episode,
+    base_revision:e?.head || 0,content:c,deps:built?.deps || version(e)?.deps || [],meta:{input:built?.input || version(e)?.meta?.input,preview:built},set_current:shouldAccept,expected_accepted:e?.accepted??null});
+  S.dirty=false; S.stageDraft=null; await refresh(); toast(shouldAccept?"已保存并设为当前版本":"草稿已保存，尚未改变下游引用");
 }
 async function acceptRecord(e) {
   if (!e) throw new Error("请先保存一个版本");
   await projectAPI("accept",{id:e.id,revision:e.head,expected_accepted:e.accepted});
-  await refresh(); toast("已接受当前版本，依赖它的内容会在上游变化时提示复核");
+  await refresh(); toast("已设为当前版本，依赖它的内容会在上游变化时提示复核");
 }
 async function composePreview() {
   const f=new FormData($("#context-form"));
@@ -442,9 +450,9 @@ async function composePreview() {
     btn("复制指令","copy-composed")+btn("下载指令","download-composed")+btn("发送给模型生成","generate","","primary"));
 }
 async function importStructured() {
-  if (S.dirty) throw new Error("请先保存并接受当前阶段结果");
+  if (S.dirty) throw new Error("请先保存当前阶段并设为当前版本");
   const e=stageEntity(), v=accepted(e);
-  if (!v || e.accepted!==e.head) throw new Error("请先接受当前阶段版本");
+  if (!v || e.accepted!==e.head) throw new Error("请先将当前阶段设为当前版本");
   const obj=v.content.structured;
   if (!obj || (!obj.shots?.length && !obj.assets?.length)) throw new Error("需要包含 shots 或 assets 数组的结构化 JSON；可在流程指令中查看格式");
   const rows=[...(obj.assets || []).map(c=>({kind:"asset",c})),...(obj.shots || []).map(c=>({kind:"shot",c}))];
@@ -478,7 +486,7 @@ async function importStructured() {
     await refresh();
     const next={M01:"assets",M02:"shots",M03:"attempts"}[S.stage];
     if(next){S.page=next;render();}
-    toast(S.stage.startsWith("M")?`已同步并采用 ${count} 条镜头 / 资产`:`已保存 ${count} / ${rows.length} 条草稿；到镜头 / 资产页面校对并接受`);
+    toast(S.stage.startsWith("M")?`已同步并设定 ${count} 条当前镜头 / 资产`:`已保存 ${count} / ${rows.length} 条草稿；到镜头 / 资产页面校对并设为当前版本`);
   }
 }
 function settingsDialog() {
@@ -538,12 +546,12 @@ const actions = {
     const name=$('#delete-project-form [name="confirmation"]').value;
     await projectAPI("delete",{confirmation:name});
     localStorage.removeItem("studio.project");localStorage.removeItem("studio.project."+S.space);closeModal(true);S.project=null;S.page="overview";beautyReset();
-    await boot();toast("项目及其本地素材已删除");
+    await boot();toast("项目已移入回收站，可随时恢复");
   },
   "confirm-delete-source":async id=>{
     const name=$('#delete-source-form [name="confirmation"]').value;
     await projectAPI("delete-entity",{id,confirmation:name});
-    closeModal(true);await refresh();toast("上游素材已删除");
+    closeModal(true);await refresh();toast("上游素材已移入回收站");
   },
   "close":()=>closeModal(),
   "stage":id=>navigate("stages",id),
@@ -560,9 +568,9 @@ const actions = {
   "edit-recipe":id=>editor("recipe",id),
   "edit-publication":id=>editor("publication",id),
   "new-attempt":id=>editor("attempt","",{shot:id}),
-  "accept-record":async id=>{if(S.modalDirty) throw new Error("先保存编辑，再接受保存后的版本");await acceptRecord(entity(id));closeModal(true);},
+  "accept-record":async id=>{if(S.modalDirty) throw new Error("先保存编辑，再将保存后的版本设为当前");await acceptRecord(entity(id));closeModal(true);},
   "accept-stage":async()=>{if(S.dirty) throw new Error("请先保存当前编辑");await acceptRecord(stageEntity());},
-  "save-stage":saveStage,
+  "save-stage":()=>saveStage(false),
   "save-accept-stage":()=>saveStage(true),
   "compose":composePreview,
   "copy-composed":()=>copy($('[name=composed]').value),
@@ -572,14 +580,14 @@ const actions = {
     $("#modal-error").textContent="正在生成，通常需要数十秒；结果与失败草稿都会保存。";
     const scope = [S.project.project.id,S.stage,S.episode].join("|"), preview = S.preview;
     const res=await projectAPI("generate",{input:S.preview.input,preview_hash:S.preview.hash});
-    if (scope !== [S.project.project.id,S.stage,S.episode].join("|") || S.page !== "stages" || !$("#modal").open || !$('[name=composed]')) {
+    if (scope !== [S.project.project.id,S.stage,S.episode].join("|") || !["stages","pipeline"].includes(S.page) || !$("#modal").open || !$('[name=composed]')) {
       toast("生成记录已保存在原项目阶段中，可稍后载入");
       return;
     }
     S.preview=preview;
     S.stageDraft=res.error ? {text:res.run.content.text} : {text:res.result.text,structured:res.result};
     S.dirty=true;closeModal(true);await refresh();
-    toast(res.error || "生成草稿已载入；检查后保存并接受",!!res.error);
+    toast(res.error || "生成草稿已载入；检查后保存并设为当前版本",!!res.error);
   },
   "import-structured":importStructured,
   "copy-image":id=>copy(version(entity(id)).content.image_prompt || ""),
@@ -592,7 +600,7 @@ const actions = {
   "select-take":async id=>{
     const e=entity(id),c=version(e).content;
     await projectAPI("select",{id,revision:e.head,expected:S.project.selected[c.prompt_ref.id] || null});
-    await refresh();toast("已采用；剪辑包会携带这个结果版本");
+    await refresh();toast("已设为当前结果；剪辑包会携带这个版本");
   },
   "repair":id=>{
     if(!canLeave())return;
@@ -621,7 +629,7 @@ const actions = {
   },
   "open-run":id=>{
     const e=entity(id),v=version(e);S.openRun=id;
-    modal("模型生成记录",`<div class="notice ${v.content.error?"warn":""}">${esc(v.content.error || "生成成功，尚需人工接受。")}</div><pre>${esc(v.content.text || "服务没有返回可保存的文本。")}</pre><details><summary>实际指令与输入快照</summary><pre>${esc(v.meta.prompt)}</pre></details>`,btn("载入编辑器","load-run"));
+    modal("模型生成记录",`<div class="notice ${v.content.error?"warn":""}">${esc(v.content.error || "生成成功，尚需人工检查并设为当前版本。")}</div><pre>${esc(v.content.text || "服务没有返回可保存的文本。")}</pre><details><summary>实际指令与输入快照</summary><pre>${esc(v.meta.prompt)}</pre></details>`,btn("载入编辑器","load-run"));
   },
   "load-run":()=>{
     if(!canLeave())return;
@@ -659,20 +667,20 @@ document.addEventListener("submit",async event=>{
   try {
     if(form.id==="project-form"){const p=await api("/api/projects",data);closeModal(true);S.dirty=false;S.page="overview";await boot(p.id);}
     if(form.id==="settings-form"){S.boot.settings=await api("/api/settings",{...data,clear_key:f.has("clear_key")});closeModal(true);toast("连接设置已保存");}
-    if(form.id==="record-form")await saveRecord(form);
+    if(form.id==="record-form")await saveRecord(form,event.submitter?.value==="current");
   } catch(err){if($("#modal-error"))$("#modal-error").textContent=err.message;toast(err.message,true);}
   finally{buttons.forEach(b=>b.disabled=false);}
 });
 document.addEventListener("input",event=>{
   if(event.target.closest("#modal form")) S.modalDirty=true;
-  if(event.target.id==="stage-output"){S.dirty=true;$("#stage-dirty").textContent="未保存";}
+  if(event.target.id==="stage-output"){S.dirty=true;S.stageDraft={text:event.target.value};$("#stage-dirty").textContent="未保存";}
   if(event.target.name==="template-body")S.dirty=true;
 });
 document.addEventListener("change",async event=>{
   const el=event.target;
   try {
     if(el.id==="project-select"){if(canLeave()){S.dirty=false;S.stageDraft=null;S.preview=null;await boot(el.value);}else el.value=S.project.project.id;}
-    if(el.id==="episode"){if(canLeave()){S.episode=el.value.trim() || "EP001";localStorage.setItem("studio.episode",S.episode);S.dirty=false;S.preview=null;S.stageDraft=null;render();}else el.value=S.episode;}
+    if(el.id==="episode"){if(canLeave()){S.episode=el.value.trim() || "EP001";localStorage.setItem("studio.episode",S.episode);S.dirty=false;S.preview=null;S.stageDraft=null;productionReset();await productionLoad();render();}else el.value=S.episode;}
     if(el.closest("#record-form")&&el.name==="profile")updateShotProfile();
     if(el.closest("#record-form")&&el.name==="shot"){
       updateAttemptRevisions();

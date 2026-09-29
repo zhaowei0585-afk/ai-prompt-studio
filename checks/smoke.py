@@ -73,8 +73,8 @@ def main():
 
         try:
             bootstrap = request("/api/bootstrap")
-            assert len(bootstrap["templates"]) == 16 and bootstrap["projects"] == []
-            assert [s[0] for s in bootstrap["stages"][:3]] == ["M01","M02","M03"]
+            assert len(bootstrap["templates"]) == 17 and bootstrap["projects"] == []
+            assert [s[0] for s in bootstrap["stages"][:4]] == ["M00","M01","M02","M03"]
             request("/api/projects", {"name":"blocked","track":"drama"}, headers={"Origin":"https://foreign.example"}, expected=403)
             request("/api/projects", {"name":"blocked","track":"drama"}, headers={"X-Studio-Token":""}, expected=403)
             request("/api/bootstrap", headers={"Host":"foreign.example"}, expected=403)
@@ -227,8 +227,10 @@ def main():
             material = request(delete_path+"/save", {"id":"SRC-DELETE","kind":"source","title":"废弃素材",
                 "base_revision":1,"content":{"text":"v2","locator":"test","rights":"","reviewed":True,"media_ids":[]}})
             request(delete_path+"/accept", {"id":material["id"],"revision":2,"expected_accepted":1})
-            request(delete_path+"/delete-version", {"id":"SRC-DELETE","revision":1})
-            assert [v["revision"] for v in request(delete_path)["entities"][0]["versions"]] == [2]
+            deleted_version = request(delete_path+"/delete-version", {"id":"SRC-DELETE","revision":1})
+            assert [v["revision"] for v in request(delete_path)["entities"][0]["versions"]] == [1,2]
+            assert request(delete_path)["trash"][0]["revision"] == 1
+            request("/api/trash/restore", {"id":deleted_version["id"]})
             request(delete_path+"/delete-version", {"id":"SRC-DELETE","revision":2}, expected=400)
             downstream = request(delete_path+"/save", {"kind":"stage","title":"引用素材","content":{"text":"draft"},
                 "deps":[{"id":"SRC-DELETE","revision":2}]})
@@ -237,8 +239,10 @@ def main():
             media = request(delete_path+"/upload", raw=png, headers={"X-Filename":"delete-with-project.png"}, expected=201)
             assert (app.store.path/disposable["id"]/media["filename"]).is_file()
             request(delete_path+"/delete", {"confirmation":"错误名称"}, expected=400)
-            request(delete_path+"/delete", {"confirmation":"待删除项目"})
+            deleted_project = request(delete_path+"/delete", {"confirmation":"待删除项目"})
             request(delete_path, expected=404)
+            assert (app.store.path/disposable["id"]).exists()
+            request("/api/trash/purge", {"id":deleted_project["id"], "confirmation":"待删除项目"})
             assert not (app.store.path/disposable["id"]).exists()
             print("PASS safe project, source and discarded-version deletion")
 

@@ -29,8 +29,10 @@ function beautyRead() {
   const form=$("#beauty-form");
   if(!form)return beautyDraft();
   const f=new FormData(form);
-  B.draft={...beautyDraft(),...Object.fromEntries(f),input_media:f.getAll("input_media"),
-    duration:Number(f.get("duration") || 5),vision:f.has("vision")};
+  B.draft={...beautyDraft(),...Object.fromEntries(f)};
+  if($('[data-media-group="input_media"]',form))B.draft.input_media=f.getAll("input_media");
+  if(f.has("duration"))B.draft.duration=Number(f.get("duration"));
+  if($('[name="vision"]',form))B.draft.vision=f.has("vision");
   return B.draft;
 }
 function beautyClearVideo() {
@@ -69,11 +71,11 @@ function beautyCreateView() {
   const warnings=e?(S.project.checks[e.id] || []).filter(x=>!x.startsWith("待写")):[];
   for(const [take,field,label] of [[image,"image_prompt","图片"],[video,"video_prompt","视频"]]){
     if(take && version(e,take.version.content.prompt_ref.revision)?.content[field]!==d[field])
-      warnings.push(`已采用${label}对应较早的提示词；新词尚未生成并验证结果`);
+      warnings.push(`当前${label}对应较早的提示词；新词尚未生成并验证结果`);
   }
   return section(e?e.title:"新作品","选人物与玩法 → 生成提示词 → 到平台生成并回填",
     btn("＋ 新作品","beauty-new")+btn("保存草稿","beauty-save","","primary"))+
-    `<div class="beauty-progress"><span>① 人物与想法</span><span>② 图片提示词</span><span>③ 生成结果</span>${badge(video?"已采用视频":image?"已采用图片 · 可完成":e?"已保存草稿":"未保存",image||video?"ok":"")}</div>
+    `<div class="beauty-progress"><span>① 人物与想法</span><span>② 图片提示词</span><span>③ 生成结果</span>${badge(video?"当前视频":image?"当前图片 · 可完成":e?"已保存草稿":"未保存",image||video?"ok":"")}</div>
     ${warnings.length?`<div class="notice warn">${esc(warnings.join("；"))}</div>`:""}
     <form id="beauty-form"><div class="beauty-layout">
       <div class="card">
@@ -100,7 +102,7 @@ function beautyCreateView() {
         <p class="muted">基础图片词按你填写的内容组合，不调用模型。AI 优化会先预览，再由你发送。</p>
         ${d.mode==="dance"?'<div class="notice">舞蹈先生成全身起始图。文字只描述风格和动作意图；准确跟跳需要目标平台支持参考视频驱动。</div>':""}
         <details class="history" ${d.video_prompt?"open":""}><summary>可选：让选定图片动起来</summary>
-          ${imageIds.length?`<label class="field">已采用图片</label><div class="media-grid">${imageIds.slice(0,1).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>`:'<p>先回填并采用一张图片，再生成视频提示词。</p>'}
+          ${imageIds.length?`<label class="field">当前图片</label><div class="media-grid">${imageIds.slice(0,1).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>`:'<p>先回填并设定一张当前图片，再生成视频提示词。</p>'}
           ${area("可复制视频正文","video_prompt",d.video_prompt,"围绕实际起始图写一个动作；修改图片词会清除待用视频词，旧版本仍保留。",5)}
           <div class="row">${btn("生成视频提示词","beauty-compose","video")}${btn("保存并复制视频词","beauty-copy","video")}</div>
         </details>
@@ -110,7 +112,7 @@ function beautyCreateView() {
         </details>
       </div>
     </div></form>
-    ${section("生成结果","上传实际结果、记录平台和实际用词，再人工采用；只做图片也可以完成。",
+    ${section("生成结果","上传实际结果、记录平台和实际用词，再人工设为当前结果；只做图片也可以完成。",
       btn("回填图片","beauty-result","image","primary")+btn("回填视频 / 截图","beauty-result","video"))}
     <div class="result-drop" data-beauty-drop="result">将结果文件拖到这里，或使用上方回填按钮</div>
     <div class="grid">${entities("attempt").filter(a=>version(a).content.prompt_ref.id===B.id).slice().reverse().map(beautyResultCard).join("")}</div>
@@ -122,20 +124,20 @@ function beautyResultCard(e) {
     <h3>${esc(e.title)}</h3><p>${esc(c.platform || "平台未填")} · ${esc(c.feedback || "暂无反馈")}</p>
     <div class="media-grid">${(c.result_media || []).map(beautyMedia).filter(Boolean).slice(0,1).map(m=>mediaCard(m,true)).join("")}</div>
     <div class="row">${badge({accepted:"可用",rejected:"需返修",unreviewed:"待检查"}[c.judgment],c.judgment==="accepted"?"ok":"warn")}
-      ${selected?.ref.id===e.id?badge(`已采用结果 v${selected.ref.revision}`,"ok"):""}</div>
-    <footer>${btn("详情 / 修改","beauty-edit-result",e.id)}${btn(medium==="image"?"采用图片":"采用视频","beauty-select",e.id)}${btn("据此返修","beauty-repair",e.id)}
+      ${selected?.ref.id===e.id?badge(`当前结果 v${selected.ref.revision}`,"ok"):""}</div>
+    <footer>${btn("详情 / 修改","beauty-edit-result",e.id)}${btn(medium==="image"?"设为当前图片":"设为当前视频","beauty-select",e.id)}${btn("据此返修","beauty-repair",e.id)}
     ${medium==="image"?btn("保存为人物","beauty-character-from",e.id):""}</footer></article>`;
 }
 function beautyLibraryView() {
   const works=entities("shot"), recipes=entities("recipe");
-  return section("作品","每条作品独立选择日常、穿搭或舞蹈，图片和视频的采用记录分别保留。",btn("＋ 新作品","beauty-new","","primary"))+
+  return section("作品","每条作品独立选择日常、穿搭或舞蹈，图片和视频的当前结果分别保留。",btn("＋ 新作品","beauty-new","","primary"))+
     `<div class="grid">${works.slice().reverse().map(e=>{
       const c=version(e).content, image=beautyTake(e.id), video=beautyTake(e.id,"video");
       const shown=video || image;
       return `<article class="card"><h3>${esc(e.title)}</h3><p>${esc(beautyModes[c.mode] || "历史作品")} · ${esc(c.platform || "平台未填")} · v${e.head}</p>
         <p class="excerpt">${esc(c.idea || c.image_prompt || c.video_prompt)}</p>
         <div class="media-grid">${(shown?.version.content.result_media || []).slice(0,1).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>
-        <div class="row">${badge(video?"已采用视频":image?"已采用图片":"草稿",shown?"ok":"")}${(S.project.checks[e.id] || []).length?badge("有待复核项","warn"):""}</div>
+        <div class="row">${badge(video?"当前视频":image?"当前图片":"草稿",shown?"ok":"")}${(S.project.checks[e.id] || []).length?badge("有待复核项","warn"):""}</div>
         <footer>${btn("打开","beauty-open",e.id)}${btn("收藏为模板","beauty-favorite",e.id)}</footer></article>`;
     }).join("")}</div>`+(!works.length?empty("从一条作品开始","选一个人物、一种玩法，写一句想法。"):"")+
     section("收藏模板","保留当时的提示词和素材条件；套用时创建新作品，结果不会冒充复用成功。")+
@@ -143,14 +145,15 @@ function beautyLibraryView() {
       <footer>${btn("查看","beauty-view-recipe",e.id)}${version(e).content.beauty_template?btn("套用创作","beauty-use-recipe",e.id):btn("编辑","edit-recipe",e.id)}</footer></article>`).join("")}</div>
     <details class="history"><summary>历史阶段记录（兼容旧项目）</summary>${entities("stage").map(e=>`<details><summary>${esc(e.title)} · ${esc(e.episode)}</summary>${e.versions.slice().reverse().map(v=>`<details><summary>v${v.revision}</summary><pre>${esc(v.content.text || JSON.stringify(v.content,null,2))}</pre></details>`).join("")}</details>`).join("") || '<p>暂无历史阶段。</p>'}</details>`;
 }
-async function beautySave() {
+async function beautySave(setCurrent = false) {
   if(B.saving)throw new Error("作品正在保存，请稍候");
   B.saving=true;
-  try{return await beautySaveVersion();}finally{B.saving=false;}
+  $$("#content button").forEach(b=>b.disabled=true);
+  try{return await beautySaveVersion(setCurrent);}finally{B.saving=false;render();}
 }
-async function beautySaveVersion() {
+async function beautySaveVersion(setCurrent = false) {
   const d=beautyRead(), e=beautyWork(), old=version(e), projectId=S.project.project.id;
-  if(!d.idea.trim()&&!d.image_prompt.trim()&&!d.video_prompt.trim())throw new Error("先填写一句话想法或提示词");
+  if(!d.character&&!d.idea.trim()&&!d.image_prompt.trim()&&!d.video_prompt.trim())throw new Error("先选择人物或填写主题");
   const [characterId,rev]=(d.character || "").split("|");
   const deps=(B.historyDeps || old?.deps || []).filter(dep=>entity(dep.id)?.kind!=="asset" && dep.id!==old?.content.video_source?.id);
   if(characterId)deps.push({id:characterId,revision:Number(rev)});
@@ -159,32 +162,31 @@ async function beautySaveVersion() {
   deps.push(...B.extraDeps);
   const content={...old?.content,workflow:"beauty",mode:d.mode,idea:d.idea,platform:d.platform,format:d.format,
     duration:d.duration,character_id:characterId || "",input_media:d.input_media,reference_notes:d.reference_notes,repair_note:d.repair_note || "",
+    generation_route:d.generation_route || "prompt",reference_support:d.reference_support || "unknown",
     image_prompt:d.image_prompt,video_prompt:d.video_prompt,bindings:d.bindings || {}};
   delete content.video_source;
   if(d.video_source)content.video_source=d.video_source;
-  if(content.video_prompt && !content.video_source && !old?.content.video_prompt)
-    throw new Error("先采用图片并生成视频词，确保记录实际起始图");
+  if(content.generation_route==="i2v"&&content.video_prompt&&!content.video_source)
+    throw new Error("图生视频路线请先选定当前首帧图");
   const title=d.title.trim() || d.idea.trim().slice(0,50) || "新作品";
   const id=e?.id || "WORK-"+crypto.randomUUID().replaceAll("-","");
   const unique=[...new Map(deps.map(dep=>[`${dep.id}|${dep.revision}`,dep])).values()];
   const saved=await api(`/api/projects/${projectId}/save`,{id,kind:"shot",title,episode:e?.episode || id,
-    base_revision:e?.head || 0,content,deps:unique,meta:old?.meta || {}});
+    base_revision:e?.head || 0,content,deps:unique,meta:old?.meta || {},set_current:setCurrent,expected_accepted:e?.accepted??null});
   B.id=saved.id;
   localStorage.setItem("studio.beauty.work."+projectId,saved.id);
-  // Remember a successful save even if the subsequent acceptance conflicts.
-  await refresh();
-  await projectAPI("accept",{id,revision:saved.revision,expected_accepted:e?.accepted ?? null});
   S.dirty=false;B.draft={...d,title};B.extraDeps=[];B.historyDeps=null;await refresh();
   return entity(id);
 }
 async function beautyEnsureSaved() {
-  if(!beautyWork() || S.dirty)return beautySave();
+  if(!beautyWork() || S.dirty)throw new Error("请先保存并设为当前版本，再生成或回填");
+  if(beautyWork().head!==beautyWork().accepted)throw new Error("草稿尚未设为当前版本");
   return beautyWork();
 }
 async function beautyOpen(id) {
   if(!canLeave())return;
   beautyReset();B.id=id;localStorage.setItem("studio.beauty.work."+S.project.project.id,id);
-  S.dirty=false;S.page="beauty-create";render();
+  S.dirty=false;S.page="beauty-create";P.step=0;await productionLoad();render();
 }
 function beautyBasic() {
   const d=beautyRead();
@@ -198,14 +200,15 @@ function beautyBasic() {
 async function beautyCompose(target) {
   beautyRead();
   const e=await beautyEnsureSaved(), d=beautyDraft(), image=beautyTake(e.id);
-  if(target==="video"&&!image)throw new Error("先回填并采用一张图片，再生成视频提示词");
+  if(target==="video"&&d.generation_route==="i2v"&&!image)throw new Error("图生视频路线请先选定当前图片");
+  if(d.vision&&!S.boot.settings.vision_model)throw new Error("请先在模型连接中配置并测试视觉模型");
   const charId=d.character?.split("|")[0];
   const contextIds=[e.id];
   const char=charId?version(entity(charId),Number(d.character.split("|")[1])):null;
-  const candidates=[...(char?.content.media_ids || []),...d.input_media,...(target==="video"?image.version.content.result_media:[])];
+  const candidates=[...(char?.content.media_ids || []),...d.input_media,...(target==="video"&&image?image.version.content.result_media:[])];
   const images=[...new Set(candidates)].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
   const input={stage:"B04",episode:e.id,scope:target,source_ids:[],context_ids:contextIds,
-    media_ids:d.vision?images:[],extra:`只为这一条作品生成${target==="video"?"视频":"图片"}提示词。\n玩法：${beautyModes[d.mode]}；平台：${d.platform || "未知，通用中文"}。\n人物实际引用版本：${d.character || "未选人物"}；设定：${char?JSON.stringify(char.content):"按想法设计成年原创人物"}。\n本次要求：${d.repair_note || "依据想法完成"}。\n${target==="video"?`视频以已采用图片为起点，保持人物、服装与场景。目标时长 ${d.duration} 秒。\n实际采用图片记录：${JSON.stringify({ref:image.ref,content:image.version.content})}`:"仅描述静态画面，不生成视频词。"}\n${B.repair?`返修按用户描述：${version(B.repair).content.feedback || ""}\n实际用词：${version(B.repair).content.actual_prompt || ""}`:""}`};
+    media_ids:d.vision?images:[],extra:`只为这一条作品生成${target==="video"?"视频":"图片"}提示词。\n主题：${beautyModes[d.mode]}；平台：${d.platform || "未知，通用中文"}。\n人物实际引用版本：${d.character || "未选人物"}；设定：${char?JSON.stringify(char.content):"按想法设计成年原创人物"}。\n本次要求：${d.repair_note || "依据想法完成"}。\n${target==="video"?`生成路线：${d.generation_route || "prompt"}。目标时长 ${d.duration} 秒。\n${image?`实际当前图片记录：${JSON.stringify({ref:image.ref,content:image.version.content})}`:"直接根据主题写动作与镜头描述，无已选首帧。"}\n参考视频只依据人工标注的动作与时间范围，不声称看过连续视频。`:"仅描述静态画面，不生成视频词。"}\n${B.repair?`返修按用户描述：${version(B.repair).content.feedback || ""}\n实际用词：${version(B.repair).content.actual_prompt || ""}`:""}`};
   const built=await projectAPI("compose",input);
   B.pending={project:S.project.project.id,id:e.id,revision:e.head,input,built,target,image:image?.ref,
     firstFrame:image?.version.content.result_media[0],repairNote:d.repair_note || "",vision:!!d.vision};
@@ -224,7 +227,7 @@ function beautyLoadResult(result, run) {
   const d=beautyDraft();
   if(p.target!=="video")beautyClearVideo();
   d[key]=result[key];d.vision=p.vision;d.repair_note=p.repairNote;
-  if(p.target==="video"){d.video_source=p.image;d.bindings={first_frame:p.firstFrame};}
+  if(p.target==="video"&&p.image){d.video_source=p.image;d.bindings={first_frame:p.firstFrame};}
   if(run)B.extraDeps.push({id:run.id,revision:run.revision,frozen:true});
   S.dirty=true;closeModal(true);render();toast("提示词已载入，检查后保存或复制");
 }
@@ -276,7 +279,7 @@ async function beautySaveResult() {
     base_revision:e?.head || 0,content,deps:[prompt_ref]});
   B.result.e={...e,id:saved.id,head:saved.revision};
   await projectAPI("accept",{id:saved.id,revision:saved.revision,expected_accepted:e?.accepted ?? null});
-  closeModal(true);await refresh();toast("结果已保存，可选择采用或据此返修");
+  closeModal(true);await refresh();toast("结果已保存，可设为当前结果或据此返修");
 }
 async function beautyUpload(files,target) {
   beautyRead();
@@ -308,11 +311,12 @@ Object.assign(actions,{
     S.dirty=true;render();
   },
   "beauty-use-character":async id=>{
-    if(!accepted(entity(id)))throw new Error("先保存并采用人物");
+    if(!accepted(entity(id)))throw new Error("先保存人物并设为当前版本");
     if(!canLeave())return;
     beautyReset();S.page="beauty-create";beautyDraft().character=`${id}|${entity(id).accepted}`;S.dirty=true;render();
   },
-  "beauty-save":async()=>{await beautySave();toast("作品已保存，新修订保留历史");},
+  "beauty-save":async()=>{await beautySave(false);toast("草稿已保存，下游仍使用原当前版本");},
+  "beauty-current":async()=>{await beautySave(true);toast("已保存并设为当前版本");},
   "beauty-basic":beautyBasic,
   "beauty-compose":beautyCompose,
   "beauty-generate":beautyGenerate,
@@ -340,7 +344,7 @@ Object.assign(actions,{
   "beauty-select":async id=>{
     const e=entity(id),c=version(e).content;
     await projectAPI("select",{id,revision:e.head,expected:(c.medium==="image"?S.project.selected_images:S.project.selected)[c.prompt_ref.id] || null});
-    beautyRead();await refresh();toast(c.medium==="image"?"图片已采用，可以完成作品或继续做视频":"视频已采用");
+    beautyRead();await refresh();toast(c.medium==="image"?"图片已设为当前结果，可以完成作品或继续做视频":"视频已设为当前结果");
   },
   "beauty-repair":id=>{
     beautyRead();B.repair=entity(id);beautyDraft().repair_note=version(B.repair).content.feedback || "";
@@ -375,7 +379,7 @@ Object.assign(actions,{
     const e=entity(id),v=version(e),chosen=beautyTake(id,"video") || beautyTake(id),deps=[{id,revision:v.revision,frozen:true}];
     if(chosen)deps.push({...chosen.ref,frozen:true});
     const saved=await projectAPI("save",{kind:"recipe",title:e.title+" · 模板",
-      content:{text:`${beautyModes[v.content.mode] || "人物"} / ${v.content.platform || "平台未填"}\n${chosen?"已有人工作品样本；效果以该平台和素材条件为限。":"草稿模板，尚无已采用结果。"}\n${v.content.idea || ""}`,
+      content:{text:`${beautyModes[v.content.mode] || "人物"} / ${v.content.platform || "平台未填"}\n${chosen?"已有人工作品样本；效果以该平台和素材条件为限。":"草稿模板，尚无当前结果。"}\n${v.content.idea || ""}`,
         beauty_template:v.content},deps});
     await projectAPI("accept",{id:saved.id,revision:1,expected_accepted:null});
     await refresh();toast("已收藏，可套用为新作品");
@@ -430,4 +434,3 @@ document.addEventListener("drop",async event=>{
   }catch(err){toast(err.message,true);}
 });
 // Both UI modules must be initialized before the first project is rendered.
-boot().catch(err=>{$("#content").innerHTML=empty("工作台未能打开",err.message);});
