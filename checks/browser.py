@@ -115,6 +115,8 @@ def main():
                 expect(page.locator(".flow-nav button")).to_have_count(6)
                 assert page.locator(".flow-nav button").all_text_contents() == [
                     "✓编写剧本", "✓剧本分镜", "03文字生图", "04图生视频", "05人声配音", "06导出"]
+                expect(page.locator('[data-action="comfyui-generate"][data-id="image"]')).to_be_disabled()
+                expect(page.locator('[data-action="comfyui-generate"][data-id="image"]')).to_have_text("ComfyUI 生图（待接入）")
                 no_overflow()
                 # Draft changes never replace the current version and can be cancelled on navigation.
                 page.locator('#prompt-form [name="prompt"]').fill("新的图片提示词")
@@ -157,6 +159,8 @@ def main():
                 print("PASS 120-file upload/mapping, draft/current semantics, 2-way diff, 30 selections, repair/discard", flush=True)
                 click("flow-next")
                 expect(page.locator('.flow-nav [aria-current="step"]')).to_contain_text("图生视频")
+                expect(page.locator('[data-action="comfyui-generate"][data-id="video"]')).to_be_disabled()
+                expect(page.locator('[data-action="comfyui-generate"][data-id="video"]')).to_have_text("ComfyUI 生视频（待接入）")
                 # Real decodable video generated only as a disposable browser fixture.
                 clip_bytes = bytes(page.evaluate("""async () => {
                     const c=document.createElement('canvas');c.width=64;c.height=64;

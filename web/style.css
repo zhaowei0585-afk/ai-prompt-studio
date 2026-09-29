@@ -33,6 +33,7 @@ button {
 }
 button:hover { background: #eef1e9; }
 button:disabled { opacity: .5; cursor: wait; }
+.future-action:disabled { cursor: not-allowed; border-style: dashed; opacity: .72; }
 .primary { background: var(--green); color: #fff; border-color: var(--green); }
 .primary:hover { background: #195d46; }
 .danger { color: var(--red); }

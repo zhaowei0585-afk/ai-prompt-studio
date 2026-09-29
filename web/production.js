@@ -68,10 +68,11 @@ function promptWorkspace(){
   const e=activeShot(),v=version(e),c=v?.content || {};
   if(!e)return empty("先完成分镜","同步分镜后，这里会显示每一镜的提示词。");
   const image=beautyTake(e.id), frame=image?.version.content.result_media[0] || c.bindings?.first_frame;
+  const comfy=`<button type="button" class="future-action" data-action="comfyui-generate" data-id="${P.medium}" disabled title="尚未连接另一台电脑的 ComfyUI">${P.medium==="image"?"ComfyUI 生图":"ComfyUI 生视频"}（待接入）</button>`;
   return `<div class="production-layout"><aside class="shot-list" aria-label="镜头列表">${productionShots().map(s=>`<button data-action="flow-shot" data-id="${esc(s.id)}" class="${s.id===e.id?"active":""}">${esc(s.id)}<small>${esc(s.title)}</small></button>`).join("")}</aside>
     <article class="card">${section(e.title,`${e.id} · ${c.duration} 秒`,btn("详情与历史","edit-shot",e.id))}${versionNotice(e)}
       <form id="prompt-form">${area(P.medium==="image"?"图片提示词":"视频提示词","prompt",P.promptDraft ?? c[P.medium+"_prompt"] ?? "","到生成平台使用这一段正文。",7)}
-      <div class="row">${btn("保存草稿","prompt-save")}${btn("保存并设为当前版本","prompt-current","","primary")}${btn("复制当前提示词","prompt-copy")}</div></form></article>
+      <div class="row">${btn("保存草稿","prompt-save")}${btn("保存并设为当前版本","prompt-current","","primary")}${btn("复制当前提示词","prompt-copy")}${comfy}</div></form></article>
     <aside class="card"><h3>${P.medium==="image"?"参考与参数":"实际首帧"}</h3>${frame&&beautyMedia(frame)?mediaCard(beautyMedia(frame),true):'<p>当前没有首帧，先完成文字生图并选定图片。</p>'}
       <p>${esc(c.platform || "公开平台 · 手动生成")}</p>${btn("人物 / 场景资产","flow-assets")}</aside></div>`;
 }
