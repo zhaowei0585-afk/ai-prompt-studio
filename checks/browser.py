@@ -80,7 +80,7 @@ def main():
                 page.goto(f"http://127.0.0.1:{server.server_port}")
                 page.wait_for_load_state("networkidle")
                 expect(page.locator(".hero h2")).to_have_text("三十镜生产验收")
-                assert page.locator("#nav button:visible").all_text_contents() == ["行动中心", "生产流程", "素材箱"]
+                assert page.locator("#nav button:visible").all_text_contents() == ["行动中心", "生产流程"]
                 expect(page.get_by_text("项目详情与历史")).to_have_count(0)
                 page.locator('[data-page="pipeline"]').click()
                 expect(page.locator(".script-sources")).to_be_visible()
@@ -117,6 +117,8 @@ def main():
                 expect(page.locator(".flow-nav button")).to_have_count(6)
                 assert page.locator(".flow-nav button").all_text_contents() == [
                     "✓编写剧本", "✓剧本分镜", "03文字生图", "04图生视频", "05人声配音", "06导出"]
+                expect(page.locator('#gallery [data-action="inbox-upload"]')).to_have_text("导入生成结果")
+                expect(page.get_by_text("生成结果导入")).to_have_count(0)
                 expect(page.locator('[data-action="comfyui-generate"][data-id="image"]')).to_be_disabled()
                 expect(page.locator('[data-action="comfyui-generate"][data-id="image"]')).to_have_text("ComfyUI 生图（待接入）")
                 no_overflow()

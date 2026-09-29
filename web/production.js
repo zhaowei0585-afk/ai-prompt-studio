@@ -32,7 +32,6 @@ function scriptSourcesView(){
 }
 function productionView(){
   if(S.page==="overview")return actionCenter();
-  if(S.page==="inbox")return section("素材箱","生成结果按镜头自动入列并排序，在候选图片或视频列表中统一筛选")+inboxView()+galleryView();
   if(S.page==="beauty-create")return beautyFlowView();
   if(S.page!=="pipeline")return null;
   let body;
@@ -42,7 +41,7 @@ function productionView(){
   }else if(P.step<4){
     S.stage=P.step===2?"M02":"M03";P.medium=P.step===2?"image":"video";
     body=`<details class="card"><summary>批量生成 / 粘贴${P.medium==="image"?"图片":"视频"}提示词</summary>${stagesView()}</details>`+
-      promptWorkspace()+inboxView()+galleryView();
+      promptWorkspace()+galleryView();
   }else body=P.step===4?voiceView():deliveryView();
   return flowNav()+body+flowFooter();
 }
@@ -50,10 +49,11 @@ function actionCenter(){
   const shots=episodeEntities("shot"), list=S.space==="drama"?shots:entities("shot");
   const pending=entities().filter(e=>!["run","attempt"].includes(e.kind)&&e.accepted!==e.head);
   const unreviewed=entities("attempt").filter(e=>version(e).content.judgment==="unreviewed");
+  const reviewStep=S.space==="beauty"?2:(unreviewed.some(e=>(version(e).content.medium || "video")==="video")?3:2);
   const groups=flowLabels().map((label,i)=>({label,step:i,issues:(P.status?.issues || []).filter(x=>x.step===i)})).filter(g=>g.issues.length);
   return `<div class="hero"><span class="hero-tag">${S.space==="drama"?"一集六步":"一条视频四步"} / ${esc(S.space==="drama"?S.episode:"单作品创作")}</span><h2>${esc(S.project.project.name)}</h2><p>${flowLabels().join(" → ")}</p><div class="row">${btn("继续制作","flow-step",String(groups[0]?.step || 0),"primary")}${S.space==="beauty"?btn("＋ 新作品","beauty-new"):""}</div></div>
     <div class="stats">${[["镜头 / 作品",list.length],["待设为当前",pending.length],["待筛选",unreviewed.length],["已选视频",list.filter(e=>S.project.selected[e.id]).length]].map(([label,n])=>`<div class="stat"><span>${label}</span><strong>${n}</strong></div>`).join("")}</div>
-    ${section("现在该处理什么","点击一项，直接进入需要处理的节点。",btn("打开素材箱","goto-page","inbox"))}
+    ${section("现在该处理什么","点击一项，直接进入需要处理的节点。",btn("进入候选筛选","flow-step",String(reviewStep)))}
     <div class="action-queue">${groups.map(g=>`<article class="queue-row"><div><h3>${g.label} · ${g.issues.length} 项</h3><p>${esc(g.issues.slice(0,2).map(x=>x.message).join("；"))}</p></div>${btn("去处理","flow-step",String(g.step))}</article>`).join("")||`<article class="queue-row"><div><h3>本次交付已就绪</h3><p>已选结果、配音和版本检查通过。</p></div>${btn("导出","flow-step",String(flowLabels().length-1))}</article>`}</div>
     ${pending.length?`<details class="history"><summary>草稿尚未设为当前版本 · ${pending.length}</summary>${pending.map(e=>`<div class="queue-row"><span>${esc(e.title)} · 草稿 v${e.head} / 当前 ${e.accepted?"v"+e.accepted:"未设置"}</span>${btn("打开并检查","open-entity",e.id)}</div>`).join("")}</details>`:""}
     ${S.space==="beauty"?beautyLibraryView():""}`;
@@ -83,8 +83,7 @@ function inboxView(){
   const shots=productionShots(),ready=shots.filter(accepted),used=new Set(entities("attempt").flatMap(e=>version(e).content.result_media || []));
   const available=S.project.media.filter(m=>/^(image|video)\//.test(m.mime)&&!used.has(m.id));
   const resultName=new Set(P.rows.map(row=>row.medium)).size===1?(P.rows[0]?.medium==="image"?"图片":"视频"):"结果";
-  return `<section class="inbox card">
-    ${section("生成结果导入","文件名包含镜号时自动关联并进入候选列表；无法识别时再手工确认。",btn("选择结果文件","inbox-upload")+btn("从已上传素材选择","inbox-existing"))}
+  return `<div class="inbox">
     <div class="result-drop" data-inbox-drop>拖入一批图片或视频 · 单批最多 200 个 · 自动按镜头和候选版本排序</div>
     <small>${available.length} 个已上传文件尚未关联结果。</small>
     ${P.rows.length?`<div class="form-grid">${select("统一关联镜头 / 作品","batch-shot",[["","保留自动匹配"],...ready.map(e=>[e.id,e.id+" · "+e.title])],P.shot)}
@@ -99,7 +98,7 @@ function inboxView(){
           <td><select aria-label="文件 ${i+1} 提示词版本" data-map-rev="${i}">${(e?.versions || []).filter(v=>!trashed(e.id,v.revision)).map(v=>`<option value="${v.revision}" ${v.revision===row.revision?"selected":""}>v${v.revision}${e.accepted===v.revision?" · 当前":""}</option>`).join("")}</select></td></tr>`;
       }).join("")}</tbody></table></div>
       <div class="row">${btn(`确认关联并进入候选${resultName}筛选`,"inbox-commit","","primary")}</div>`:""}
-    </section>`;
+    </div>`;
 }
 function orderedAttempts(){
   const shots=productionShots(),order=new Map(shots.map((s,i)=>[s.id,i]));
@@ -120,7 +119,8 @@ function galleryView(){
   const items=galleryItems(all);P.index=Math.max(0,Math.min(P.index,items.length-1));
   const e=items[P.index],c=version(e)?.content,shot=c?entity(c.prompt_ref.id):null;
   const current=c?(P.medium==="image"?S.project.selected_images:S.project.selected)[c.prompt_ref.id]:null;
-  return `<section id="gallery" class="card">${section(P.medium==="image"?"候选图片筛选":"候选视频筛选",`${items.length} 个候选 · J / K 或左右键切换 · A 设为当前 · R 返修 · X 淘汰`,btn(`并排对比 (${P.compare.length})`,"compare-open"))}
+  return `<section id="gallery" class="card">${section(P.medium==="image"?"候选图片筛选":"候选视频筛选",`${items.length} 个候选 · 文件名含镜号会自动入列 · J / K 或左右键切换 · A 设为当前`,btn("导入生成结果","inbox-upload","","primary")+btn("从已上传素材选择","inbox-existing")+btn(`并排对比 (${P.compare.length})`,"compare-open"))}
+    ${inboxView()}
     <div class="gallery-filters">${select("结果类型","gallery-medium",[["image","图片"],["video","视频"]],P.medium)}
       ${select("镜头 / 作品","gallery-shot",[["","全部镜头"],...productionShots().map(s=>[s.id,s.id+" · "+s.title])],P.shot)}
       ${select("筛选状态","gallery-filter",[["all","全部"],["unreviewed","待筛选"],["accepted","可用"],["rejected","需返修"],["discarded","已淘汰"]],P.filter)}</div>
@@ -171,7 +171,7 @@ function beautyFlowView(){
   }else body=deliveryView()+`<div class="row">${e?btn("主题保存为模板","beauty-favorite",e.id):""}${btn("沿用人物再做一条","beauty-another")}</div>`;
   return flowNav()+section(e?.title || "今日新作品","每步确认当前版本后继续。",btn("＋ 新作品","beauty-new"))+
     (P.step<3?versionNotice(e):"")+body+(P.step<3?`<div class="row save-work">${btn("保存草稿","beauty-save")}${btn("保存并设为当前版本","beauty-current","","primary")}</div>`:"")+
-    (P.step===2?inboxView()+galleryView():"")+flowFooter();
+    (P.step===2?galleryView():"")+flowFooter();
 }
 function capabilityNotice(){
   const s=S.boot.settings,t=s.connection_test;

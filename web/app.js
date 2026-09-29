@@ -3,10 +3,10 @@ const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const S = {boot:null, project:null, space:localStorage.getItem("studio.space")==="beauty"?"beauty":"drama", page:"overview", stage:"M00", episode:localStorage.getItem("studio.episode") || "EP001", dirty:false, modalDirty:false, preview:null, stageDraft:null};
-const dramaTitles = {overview:"行动中心",pipeline:"生产流程",inbox:"素材箱",sources:"来源素材",stages:"阶段编辑",assets:"角色与资产",shots:"镜头详情",attempts:"结果档案",recipes:"配方与发布",profiles:"工作流档案",templates:"提示词模板"};
+const dramaTitles = {overview:"行动中心",pipeline:"生产流程",sources:"来源素材",stages:"阶段编辑",assets:"角色与资产",shots:"镜头详情",attempts:"结果档案",recipes:"配方与发布",profiles:"工作流档案",templates:"提示词模板"};
 const tracks = {drama:"AI 漫剧",daily:"人物 · 日常",outfit:"人物 · 穿搭",dance:"人物 · 舞蹈"};
 const projectSpace = p => p.track === "drama" ? "drama" : "beauty";
-const beautyTitles = {overview:"行动中心","beauty-create":"生产流程",inbox:"素材箱","beauty-characters":"人物库","beauty-library":"历史作品"};
+const beautyTitles = {overview:"行动中心","beauty-create":"生产流程","beauty-characters":"人物库","beauty-library":"历史作品"};
 const sourceKinds = {novel:"小说",comic:"漫画",joke:"段子",other:"其他"};
 const trashed = (id, revision) => (S.project?.trash || []).some(t=>t.target===id&&(t.kind==="entity"||t.kind==="version"&&t.revision===revision));
 const entities = kind => (S.project?.entities || []).filter(e => (!kind || e.kind === kind) && !trashed(e.id) && e.versions.some(v=>!trashed(e.id,v.revision)));
@@ -101,7 +101,7 @@ function navigate(page, stage) {
 function render() {
   const labels = S.space === "drama" ? dramaTitles : beautyTitles;
   if(!labels[S.page])S.page=S.space==="beauty"?"beauty-create":"overview";
-  const mainPages=S.space==="drama"?["overview","pipeline","inbox"]:["overview","beauty-create","inbox","beauty-library"];
+  const mainPages=S.space==="drama"?["overview","pipeline"]:["overview","beauty-create","beauty-library"];
   const navButton=([page,title])=>`<button data-page="${page}" class="${S.page===page?"active":""}"><em>${title}</em></button>`;
   $("#nav").innerHTML=mainPages.map(page=>navButton([page,labels[page]])).join("");
   $$('.workspace-tabs [role=tab]').forEach(b=>{
@@ -125,7 +125,7 @@ function render() {
 }
 function welcome() {
   if(S.space==="beauty")return `<div class="hero welcome"><span class="hero-tag">AI 美女 / 一位人物，多种生活</span><h2>选一个主题，<br>做出今天的视频。</h2><p>选择人物 → 选择今日主题 → 生成视频 → 导出。<br>提示词在这里整理，媒体到常用 AI 平台生成，再回来选片。</p><div class="row">${btn("创建美女项目 →","new-project","","primary")}${btn("恢复工程","restore")}</div></div>`;
-  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集六步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>批量回填、候选筛选，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
+  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集六步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>候选导入、候选筛选，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
 }
 function stageCodes() {
   if(S.project.project.track === "drama"){
