@@ -596,7 +596,9 @@ class Store:
             require(found and found[0]["kind"] == "stage" and found[0]["accepted"] == data["revision"] == found[0]["head"], "请先设为当前阶段版本")
             e, v = found
             obj = v["content"].get("structured", {})
-            rows = [("asset", c) for c in obj.get("assets", [])] + [("shot", c) for c in obj.get("shots", [])]
+            stage_code = e["id"].split("-")[1] if e["id"].startswith("stage-") else ""
+            asset_rows = [] if stage_code in {"M02", "M03"} else [("asset", c) for c in obj.get("assets", [])]
+            rows = asset_rows + [("shot", c) for c in obj.get("shots", [])]
             require(0 < len(rows) <= 200, "需要包含 1～200 个镜头或资产")
             require(len({c.get("key") for _, c in rows}) == len(rows), "镜号或资产 key 重复")
             results = []
@@ -611,13 +613,16 @@ class Store:
                     for k in ("bindings", "media_ids", "video_source"):
                         if k in old_v["content"]:
                             content[k] = old_v["content"][k]
-                deps = [{"id": e["id"], "revision": v["revision"]}]
-                deps += [d for d in (old_v["deps"] if old_v else []) if d["id"] != e["id"] and
-                         next((x["kind"] for x in state["entities"] if x["id"] == d["id"]), "") != "stage"]
+                deps = [{"id": e["id"], "revision": v["revision"], "frozen": True}]
+                semantic = {"source", "stage", "asset", "profile", "template"}
+                deps += [d for d in (old_v["deps"] if old_v else []) if
+                         next((x["kind"] for x in state["entities"] if x["id"] == d["id"]), "") not in semantic | {"shot"}]
                 for dep in v["deps"]:
                     upstream = find_version(state, dep)
-                    if upstream and upstream[0]["kind"] in {"asset", "profile"} and dep["id"] != c["key"] and dep not in deps:
-                        deps.append(dep)
+                    if upstream and upstream[0]["kind"] in semantic and dep["id"] != c["key"]:
+                        current = {"id": dep["id"], "revision": dep["revision"]}
+                        if current not in deps:
+                            deps.append(current)
                 results.append(self._save(con, state, {"id": c["key"], "kind": kind, "title": c.get("title", c["key"]),
                     "episode": e["episode"] if kind == "shot" else "", "base_revision": old["head"] if old else 0,
                     "content": content, "deps": deps, "set_current": True, "expected_accepted": old["accepted"] if old else None}))

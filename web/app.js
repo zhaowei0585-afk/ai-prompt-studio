@@ -228,7 +228,7 @@ function stagesView() {
     <div class="card"><div class="row between"><div><span class="eyebrow">${S.stage} / ${esc(S.episode)}</span><h2>${info[1]}</h2></div>${e ? stateBadge(e) : badge("尚未保存")}</div>
     <p class="muted">${S.stage==="M00"?"AI 生成后仍可逐字修改；原文与剧本分开保存，便于核对改编。":"直接编写或粘贴外部 AI 的结果。"} 保存草稿保留编辑；设为当前版本后，下一步才会引用。</p>
     <label class="field">${S.stage==="M00"?"本集剧本":"阶段结果"} <span class="dirty" id="stage-dirty"></span><textarea id="stage-output" class="editor" spellcheck="false">${esc(draft.structured ? JSON.stringify(draft.structured,null,2) : draft.text || "")}</textarea></label>
-    <div class="row">${btn("保存草稿","save-stage")}${btn("保存并设为当前版本","save-accept-stage","","primary")}${e&&e.head!==e.accepted?btn("设为当前版本","accept-stage"):""}${S.stage!=="M00"?btn("同步镜头与资产","import-structured"):""}</div>
+    <div class="row">${btn("保存草稿","save-stage")}${btn("保存并设为当前版本","save-accept-stage","","primary")}${e&&e.head!==e.accepted?btn("设为当前版本","accept-stage"):""}${S.stage==="M01"?btn("同步镜头与资产","import-structured"):["M02","M03"].includes(S.stage)?btn("应用到镜头","import-structured"):""}</div>
     ${e ? history(e,"stage-history") : ""}${runList()}</div></div>`;
 }
 function history(e, action) {

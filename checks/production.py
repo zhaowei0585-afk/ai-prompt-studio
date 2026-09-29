@@ -9,7 +9,7 @@ import time
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from studio import Store, Problem, production_status, selected_takes, active_entities, validate_backup
+from studio import Store, Problem, production_status, selected_takes, active_entities, stale_reasons, validate_backup
 
 
 def main():
@@ -147,7 +147,20 @@ def main():
         assert reviewed["content"]["prompt_ref"]["revision"] == 1
         assert reviewed["content"]["reviewed_against"]["revision"] == after["head"]
         assert not any(i["step"] == 2 and i["id"] == original["id"] for i in production_status(store.snapshot(pid), "EP001")["issues"])
-        print("PASS atomic stage synchronization, preserved bindings and explicit old-result revalidation\nAll production checks passed.")
+        loop_asset = save("LOOP-ASSET", "asset", {"type": "角色", "description": "初版", "media_ids": []})
+        loop_shot = save("LOOP-SHOT", "shot", {"duration": 5, "image_prompt": "初版图片词"}, [ref(loop_asset)])
+        loop_stage = save("stage-M02-LOOP", "stage", {"text": "批量图片词", "structured": {"shots": [
+            {"key": loop_shot["id"], "duration": 5, "image_prompt": "生成后的图片词"}],
+            "assets": [{"key": loop_asset["id"], "type": "角色", "description": "不应由 M02 更新"}]}},
+            [ref(loop_asset), ref(loop_shot)])
+        store.sync_stage(pid, ref(loop_stage))
+        state = store.snapshot(pid)
+        synced = next(e for e in state["entities"] if e["id"] == loop_shot["id"])["versions"][-1]
+        assert next(e for e in state["entities"] if e["id"] == loop_asset["id"])["head"] == 1
+        assert synced["deps"][0].get("frozen") is True and not stale_reasons(state, synced)
+        save(loop_asset["id"], "asset", {"type": "角色", "description": "新版", "media_ids": []}, base=1)
+        assert stale_reasons(store.snapshot(pid), synced) == ["LOOP-ASSET 已有不同的当前版本"]
+        print("PASS atomic stage synchronization, preserved bindings, no dependency loop and explicit old-result revalidation\nAll production checks passed.")
 
 
 if __name__ == "__main__":
