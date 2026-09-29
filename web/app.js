@@ -3,11 +3,11 @@ const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const S = {boot:null, project:null, space:localStorage.getItem("studio.space")==="beauty"?"beauty":"drama", page:"overview", stage:"M00", episode:localStorage.getItem("studio.episode") || "EP001", dirty:false, modalDirty:false, preview:null, stageDraft:null};
-const titles = {overview:"制作总览",sources:"来源素材",stages:"创作流程",assets:"角色与资产",shots:"镜头工作台",attempts:"试片与返修",recipes:"配方与作品",profiles:"工作流档案",templates:"提示词模板"};
 const dramaTitles = {overview:"行动中心",pipeline:"生产流程",inbox:"素材箱",sources:"来源素材",stages:"阶段编辑",assets:"角色与资产",shots:"镜头详情",attempts:"结果档案",recipes:"配方与发布",profiles:"工作流档案",templates:"提示词模板"};
 const tracks = {drama:"AI 漫剧",daily:"人物 · 日常",outfit:"人物 · 穿搭",dance:"人物 · 舞蹈"};
 const projectSpace = p => p.track === "drama" ? "drama" : "beauty";
 const beautyTitles = {overview:"行动中心","beauty-create":"生产流程",inbox:"素材箱","beauty-characters":"人物库","beauty-library":"历史作品"};
+const sourceKinds = {novel:"小说",comic:"漫画",joke:"段子",other:"其他"};
 const trashed = (id, revision) => (S.project?.trash || []).some(t=>t.target===id&&(t.kind==="entity"||t.kind==="version"&&t.revision===revision));
 const entities = kind => (S.project?.entities || []).filter(e => (!kind || e.kind === kind) && !trashed(e.id) && e.versions.some(v=>!trashed(e.id,v.revision)));
 const entity = id => entities().find(e => e.id === id);
@@ -103,8 +103,7 @@ function render() {
   if(!labels[S.page])S.page=S.space==="beauty"?"beauty-create":"overview";
   const mainPages=S.space==="drama"?["overview","pipeline","inbox"]:["overview","beauty-create","inbox","beauty-library"];
   const navButton=([page,title])=>`<button data-page="${page}" class="${S.page===page?"active":""}"><em>${title}</em></button>`;
-  $("#nav").innerHTML=mainPages.map(page=>navButton([page,labels[page]])).join("")+
-    `<details ${mainPages.includes(S.page)?"":"open"}><summary>项目详情与历史</summary>${Object.entries(labels).filter(([p])=>!mainPages.includes(p)).map(navButton).join("")}</details>`;
+  $("#nav").innerHTML=mainPages.map(page=>navButton([page,labels[page]])).join("");
   $$('.workspace-tabs [role=tab]').forEach(b=>{
     const active=b.dataset.id===S.space;
     b.setAttribute("aria-selected",String(active));b.tabIndex=active?0:-1;
@@ -215,17 +214,20 @@ function stagesView() {
   }
   if(["M02","M03"].includes(S.stage)) defaults.push(...episodeEntities("shot").filter(accepted).map(e=>e.id));
   const sourceDefaults=inputs?.source_ids || (["M00","M01"].includes(S.stage) ? entities("source").filter(accepted).map(e=>e.id) : []);
+  const sourceMedia=sourceDefaults.flatMap(id=>accepted(entity(id))?.content.media_ids || []).filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
+  const mediaDefaults=inputs?.media_ids || (S.stage==="M00"&&S.boot.settings.vision_model?[...new Set(sourceMedia)].slice(0,8):[]);
   const contextBlock=S.stage==="M00"?"":`<label class="field">关联设定与上游版本</label>${contextChecks(null,"context_ids",inputs?.context_ids || defaults)}`;
   return `<div class="stage-workspace">
-    <details class="card"><summary>AI 辅助 · 来源、参考素材与生成前预览</summary><form id="context-form">
-    ${field("章节 / 页格 / 时间范围","scope",inputs?.scope || "")}<label class="field">来源范围（需先设为当前版本）</label>${contextChecks("source","source_ids",sourceDefaults)}
+    <details class="card" ${S.stage==="M00"?"open":""}><summary>${S.stage==="M00"?"用来源素材生成剧本":"AI 辅助 · 来源、参考素材与生成前预览"}</summary><form id="context-form">
+    ${field("章节 / 页格 / 时间范围","scope",inputs?.scope || "")}<label class="field">${S.stage==="M00"?"本次改编来源":"来源范围"}（需先设为当前版本）</label>${contextChecks("source","source_ids",sourceDefaults)}
     ${contextBlock}
-    <label class="field">发送给视觉模型的图片（最多 8 张）</label>${mediaChecks("media_ids",inputs?.media_ids || [],"image/")}
-    ${area("本次目标与补充要求","extra",inputs?.extra || "", "例如：本集 60 秒、前三秒出现冲突、只做 12 个镜头。",3)}
-    ${btn("生成前预览","compose")}</form></details>
+    <label class="field">${S.stage==="M00"?"用于理解漫画的页面图片":"发送给视觉模型的图片"}（最多 8 张）</label>${mediaChecks("media_ids",mediaDefaults,"image/")}
+    ${S.stage==="M00"&&!S.boot.settings.vision_model&&sourceMedia.length?'<div class="notice warn">漫画页不会自动发送：请先配置视觉模型，或在来源中填写人工校对的画面与对白。</div>':""}
+    ${area("本次目标与补充要求","extra",inputs?.extra || "", S.stage==="M00"?"例如：60 秒竖屏漫剧，前三秒出现冲突，保留原段子的包袱。":"例如：本集 60 秒、前三秒出现冲突、只做 12 个镜头。",3)}
+    ${btn(S.stage==="M00"?"生成剧本预览":"生成前预览","compose","","primary")}</form></details>
     <div class="card"><div class="row between"><div><span class="eyebrow">${S.stage} / ${esc(S.episode)}</span><h2>${info[1]}</h2></div>${e ? stateBadge(e) : badge("尚未保存")}</div>
-    <p class="muted">直接编写或粘贴外部 AI 的结果。保存草稿保留编辑；设为当前版本后，下一步才会引用。</p>
-    <label class="field">阶段结果 <span class="dirty" id="stage-dirty"></span><textarea id="stage-output" class="editor" spellcheck="false">${esc(draft.structured ? JSON.stringify(draft.structured,null,2) : draft.text || "")}</textarea></label>
+    <p class="muted">${S.stage==="M00"?"AI 生成后仍可逐字修改；原文与剧本分开保存，便于核对改编。":"直接编写或粘贴外部 AI 的结果。"} 保存草稿保留编辑；设为当前版本后，下一步才会引用。</p>
+    <label class="field">${S.stage==="M00"?"本集剧本":"阶段结果"} <span class="dirty" id="stage-dirty"></span><textarea id="stage-output" class="editor" spellcheck="false">${esc(draft.structured ? JSON.stringify(draft.structured,null,2) : draft.text || "")}</textarea></label>
     <div class="row">${btn("保存草稿","save-stage")}${btn("保存并设为当前版本","save-accept-stage","","primary")}${e&&e.head!==e.accepted?btn("设为当前版本","accept-stage"):""}${S.stage!=="M00"?btn("同步镜头与资产","import-structured"):""}</div>
     ${e ? history(e,"stage-history") : ""}${runList()}</div></div>`;
 }
@@ -316,9 +318,11 @@ function editor(kind, id = "", initial = {}, rev) {
   S.edit = {kind,e,v};
   let body = field("名称","title",e?.title || initial.title || "", "text", "", "required maxlength=200");
   if (kind === "source") {
+    body += select("素材类型","source_type",Object.entries(sourceKinds),c.source_type || "other");
     body += field("来源位置","locator",c.locator || "", "text","例如：第 3 章 P1–P8 / 漫画第 2 页 / 视频 00:03–00:08");
     body += area("原文 / 人工校对的画面描述","text",c.text || "", "长篇请分章节存档；仅选择本次需要的章节。",8)+field("来源 / 授权备注","rights",c.rights || "");
     body += '<label class="field">关联图片 / 视频（按勾选列表顺序）</label>'+mediaChecks("media_ids",c.media_ids || []);
+    body += btn(c.source_type==="comic"?"导入漫画页":"导入关联素材","upload");
     body += check("此范围已由我校对","reviewed","yes",!!c.reviewed);
   } else if (kind === "asset") {
     body += S.space==="beauty"?'<input type="hidden" name="type" value="角色">':select("类型","type",["角色","造型","场景","道具"].map(v=>[v,v]),c.type || "角色");
@@ -389,7 +393,7 @@ async function saveRecord(form, setCurrent = false) {
   const f = new FormData(form), data = Object.fromEntries(f), {kind,e,v} = S.edit;
   let c={}, deps=v?.deps || [], id=e?.id, episode=e?.episode || "";
   const get = name => data[name] || "";
-  if (kind === "source") c={text:get("text"),locator:get("locator"),rights:get("rights"),reviewed:f.has("reviewed"),media_ids:f.getAll("media_ids")};
+  if (kind === "source") c={source_type:get("source_type"),text:get("text"),locator:get("locator"),rights:get("rights"),reviewed:f.has("reviewed"),media_ids:f.getAll("media_ids")};
   if (kind === "asset") c={...v?.content,type:get("type"),description:get("description"),image_prompt:get("image_prompt"),lora_trigger:get("lora_trigger"),lora_weight:get("lora_weight"),ip_adapter_notes:get("ip_adapter_notes"),naming_rule:get("naming_rule"),media_ids:f.getAll("media_ids")};
   if (kind === "profile") c={mode:get("mode"),checkpoint:get("checkpoint"),language:get("language"),settings:get("settings"),slots:JSON.parse(get("slots") || "[]"),verification:f.has("verified")?"verified":"unverified",capabilities:{negative_prompt:get("negative_prompt")===""?null:get("negative_prompt")==="true"}};
   if (kind === "shot") {
@@ -521,7 +525,7 @@ async function captureFrame() {
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.9));
   if (!blob) throw new Error("无法提取该编码的视频画面，请换 MP4/H.264 或上传手工截图");
   const file=await uploadFile(new File([blob],`frame-${time}s.jpg`,{type:"image/jpeg"}));
-  const saved=await projectAPI("save",{kind:"source",title:`${original.name} · ${time}s`,content:{locator:`${original.name} / ${time} 秒`,text:"浏览器手工抽取单帧。画面内容待人工校对；不代表已分析连续动作和音轨。",media_ids:[file.id,original.id],reviewed:false,rights:""}});
+  const saved=await projectAPI("save",{kind:"source",title:`${original.name} · ${time}s`,content:{source_type:"other",locator:`${original.name} / ${time} 秒`,text:"浏览器手工抽取单帧。画面内容待人工校对；不代表已分析连续动作和音轨。",media_ids:[file.id,original.id],reviewed:false,rights:""}});
   closeModal(true);await refresh();editor("source",saved.id);toast("关键帧已保存，请校对来源描述");
 }
 const actions = {
@@ -695,7 +699,7 @@ document.addEventListener("change",async event=>{
     if(el.name==="template-code"){if(canLeave()){S.templateCode=el.value;S.templateDraft=undefined;S.dirty=false;render();}else el.value=S.templateCode||"P00";}
     if(el.id==="text-input"&&el.files[0]){
       const file=el.files[0];if(file.size>1024*1024)throw new Error("请将长篇拆成小于 1 MB 的章节文件");
-      editor("source","",{title:file.name,text:await file.text(),locator:file.name});el.value="";
+      editor("source","",{source_type:"novel",title:file.name,text:await file.text(),locator:file.name});el.value="";
     }
     if(el.id==="upload-input"&&el.files.length){
       const files=[...el.files];let done=0;
@@ -706,9 +710,10 @@ document.addEventListener("change",async event=>{
       S.project=await api("/api/projects/"+S.project.project.id);
       if($("#modal").open && $("#record-form")){
         const names=["media_ids","input_media","result_media"];
+        const imageOnly=S.edit?.kind==="asset" || S.edit?.kind==="source"&&$('#record-form [name="source_type"]')?.value==="comic";
         for(const name of names){
           const group=$(`#record-form [data-media-group=${name}]`);
-          if(group)for(const m of S.project.media.filter(m=>!oldIds.has(m.id) && (S.edit?.kind!=="asset" || m.mime.startsWith("image/"))))group.insertAdjacentHTML("beforeend",check(m.name,name,m.id,name==="result_media" || S.edit?.kind==="asset"));
+          if(group)for(const m of S.project.media.filter(m=>!oldIds.has(m.id) && (!imageOnly || m.mime.startsWith("image/"))))group.insertAdjacentHTML("beforeend",check(m.name,name,m.id,name==="result_media" || ["asset","source"].includes(S.edit?.kind)));
         }
       }else render();
       toast("素材已导入");

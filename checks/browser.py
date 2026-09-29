@@ -49,6 +49,8 @@ def main():
         app.store.save(pid, {"id": "CHAR-1", "kind": "asset", "title": "共享原创人物",
             "content": {"type": "角色", "description": "成年人物，黑色齐肩发", "media_ids": [portrait["id"]]},
             "set_current": True})
+        novel = Path(temp)/"第一章.txt"
+        novel.write_text("雨夜里，她收到一封没有署名的信。", encoding="utf-8")
         errors = []
         dialogs = {"accept": True}
         try:
@@ -76,7 +78,39 @@ def main():
                 page.goto(f"http://127.0.0.1:{server.server_port}")
                 page.wait_for_load_state("networkidle")
                 expect(page.locator(".hero h2")).to_have_text("三十镜生产验收")
-                print("Rendered navigation:", page.locator("#nav button:visible").all_text_contents(), flush=True)
+                assert page.locator("#nav button:visible").all_text_contents() == ["行动中心", "生产流程", "素材箱"]
+                expect(page.get_by_text("项目详情与历史")).to_have_count(0)
+                page.locator('[data-page="pipeline"]').click()
+                expect(page.locator(".script-sources")).to_be_visible()
+                page.locator("#text-input").set_input_files(str(novel))
+                expect(page.locator('[name="source_type"]')).to_have_value("novel")
+                page.locator('[name="reviewed"]').check()
+                page.locator('#record-form button[value="current"]').click()
+                expect(page.locator("#modal")).not_to_be_visible()
+                click("script-source", "comic")
+                page.locator('#record-form [name="title"]').fill("漫画第一页")
+                page.locator('#record-form [name="text"]').fill("第一格：女孩在门口；第二格：她拆开信。")
+                page.locator(f'#record-form [name="media_ids"][value="{portrait["id"]}"]').check()
+                page.locator('[name="reviewed"]').check()
+                page.locator('#record-form button[value="current"]').click()
+                expect(page.locator("#modal")).not_to_be_visible()
+                click("script-source", "joke")
+                page.locator('#record-form [name="text"]').fill("他以为收到情书，打开后发现是催缴单。")
+                page.locator('[name="reviewed"]').check()
+                page.locator('#record-form button[value="current"]').click()
+                expect(page.locator("#modal")).not_to_be_visible()
+                expect(page.locator(".script-sources .queue-row")).to_have_count(3)
+                expect(page.locator('#context-form [name="source_ids"]:checked')).to_have_count(3)
+                expect(page.locator('#context-form [name="media_ids"]:checked')).to_have_count(1)
+                click("compose")
+                prompt = page.locator('[name="composed"]').input_value()
+                assert all(f'"source_type": "{kind}"' in prompt for kind in ("novel", "comic", "joke"))
+                assert "铺垫、误导、反转和包袱" in prompt
+                click("close")
+                page.set_viewport_size({"width": 390, "height": 844})
+                no_overflow()
+                assert page.locator(".flow-footer").evaluate("(e) => getComputedStyle(e).position") == "static"
+                page.set_viewport_size({"width": 1440, "height": 1000})
                 click("flow-step", "2")
                 expect(page.locator(".flow-nav button")).to_have_count(6)
                 assert page.locator(".flow-nav button").all_text_contents() == [

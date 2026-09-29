@@ -111,6 +111,10 @@ def reference(value):
 def content_check(kind, content):
     require(kind in KINDS and isinstance(content, dict), "记录类型或内容无效")
     require(len(dump(content).encode()) <= MAX_JSON // 2, "单条内容过大，请分章节保存")
+    if kind == "source":
+        require(content.get("source_type", "other") in {"novel", "comic", "joke", "other"}, "未知素材类型")
+        require(all(isinstance(content.get(field, ""), str) for field in ("text", "locator", "rights")), "素材文本字段无效")
+        require(type(content.get("reviewed", False)) is bool, "素材校对状态无效")
     if kind == "shot":
         require(isinstance(content.get("duration"), (int, float)) and
                 0 < content["duration"] <= 600, "镜长需要在 0～600 秒之间")

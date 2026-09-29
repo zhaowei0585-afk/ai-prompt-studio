@@ -89,6 +89,14 @@ def main():
             manga = request(path+"/compose", {"stage":"M01","episode":"EP001","scope":"P1–P3",
                 "source_ids":["SRC-001"],"context_ids":[],"media_ids":[]})
             assert '"image_prompt":"","controlnet":"","video_prompt":""' in manga["prompt"]
+            request(path+"/save", {"kind":"source","title":"无效来源",
+                "content":{"source_type":"audio_book","text":"内容","media_ids":[]}}, expected=400)
+            joke = request(path+"/save", {"id":"SRC-JOKE","kind":"source","title":"段子",
+                "content":{"source_type":"joke","text":"他以为收到情书，打开后发现是催缴单。","locator":"原段子",
+                           "rights":"","reviewed":True,"media_ids":[]},"set_current":True,"expected_accepted":None})
+            script = request(path+"/compose", {"stage":"M00","episode":"EP001","scope":"完整段子",
+                "source_ids":[joke["id"]],"context_ids":[],"media_ids":[]})
+            assert '"source_type": "joke"' in script["prompt"] and "铺垫、误导、反转和包袱" in script["prompt"]
             stage = next(e for e in state["entities"] if e["id"]=="stage-D01-EP001")
             revised_stage = request(path+"/save", {"id":stage["id"],"kind":"stage","title":stage["title"],
                 "episode":"EP001","base_revision":1,"content":stage["versions"][0]["content"],

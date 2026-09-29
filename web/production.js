@@ -18,6 +18,18 @@ function flowFooter(){
   return `<div class="flow-footer"><span>${S.dirty?"有未保存编辑":issues.length?`${issues.length} 项待补齐`:"本步已就绪"} · ${flowLabels()[P.step]}</span>
     ${last?btn("检查并下载交付包","delivery-download","","primary"):btn("完成并进入"+flowLabels()[P.step+1],"flow-next","","primary")}</div>`;
 }
+function scriptSourcesView(){
+  const sources=entities("source");
+  return `<section class="card script-sources">
+    ${section("剧本来源","导入或粘贴原始素材，确认范围后再由 AI 改编；未选中的内容不会发送。",
+      btn("导入小说文件","import-text","","primary")+btn("粘贴小说","script-source","novel")+btn("添加漫画页","script-source","comic")+btn("粘贴段子","script-source","joke"))}
+    <div class="action-queue">${sources.map(e=>{
+      const c=version(e).content;
+      return `<div class="queue-row"><div><h3>${esc(e.title)}</h3><p>${esc(sourceKinds[c.source_type] || "其他")} · ${esc(c.locator || "范围未标注")} · ${c.media_ids?.length || 0} 个关联文件</p><p>${esc(brief(c.text) || "尚未填写原文或画面描述")}</p></div>
+        <div class="row">${stateBadge(e)}${btn("编辑","edit-source",e.id)}${e.accepted!==e.head?btn("设为当前版本","flow-accept",e.id):""}${iconBtn("delete-source",e.id,"移入回收站")}</div></div>`;
+    }).join("")||'<div class="empty"><h3>先添加本集素材</h3><p>小说按章节导入；漫画按页上传并校对对白；段子直接粘贴原文。</p></div>'}</div>
+  </section>`;
+}
 function productionView(){
   if(S.page==="overview")return actionCenter();
   if(S.page==="inbox")return section("素材箱","批量上传 → 确认镜头与提示词版本 → 在这里连续判片")+inboxView()+galleryView();
@@ -26,7 +38,7 @@ function productionView(){
   let body;
   if(P.step<2){
     S.stage=["M00","M01"][P.step];
-    body=stagesView()+(P.step===1?`<details class="card"><summary>镜头顺序、人物与场景</summary>${shotsView()}${assetsView()}</details>`:"");
+    body=(P.step===0?scriptSourcesView():"")+stagesView()+(P.step===1?`<details class="card"><summary>镜头顺序、人物与场景</summary>${shotsView()}${assetsView()}</details>`:"");
   }else if(P.step<4){
     S.stage=P.step===2?"M02":"M03";P.medium=P.step===2?"image":"video";
     body=`<details class="card"><summary>批量生成 / 粘贴${P.medium==="image"?"图片":"视频"}提示词</summary>${stagesView()}</details>`+
@@ -293,11 +305,12 @@ const originalSettings=settingsDialog;
 Object.assign(actions,{
   "flow-step":id=>flowStep(Number(id)),
   "flow-next":()=>flowStep(P.step+1),
+  "script-source":id=>editor("source","",{source_type:id,title:{novel:"小说素材",comic:"漫画素材",joke:"段子素材"}[id] || "外部素材"}),
   "flow-fix":async id=>{const [step,shot]=id.split("|");closeModal(true);P.shot=shot;P.focus=shot;await flowStep(Number(step),true);},
   "flow-accept":async id=>{if(S.dirty)throw new Error("先保存当前编辑，再设置当前版本");await acceptRecord(entity(id));},
   "flow-shot":id=>{if(!canLeave())return;S.dirty=false;P.promptDraft=null;P.voiceDraft=null;P.shot=id;P.focus=id;P.index=0;render();},
   "flow-assets":()=>modal("本项目人物与场景",assetsView(),btn("关闭","close")),
-  "open-entity":id=>{const e=entity(id);if(e.kind==="stage"){S.stage=e.id.split("-")[1];navigate("stages",S.stage);}else if(e.kind==="shot"&&S.space==="beauty")beautyOpen(id);else editor(e.kind,id);},
+  "open-entity":id=>{const e=entity(id);if(e.kind==="stage"){const step={M00:0,M01:1,M02:2,M03:3}[e.id.split("-")[1]];step===undefined?navigate("stages",e.id.split("-")[1]):flowStep(step,true);}else if(e.kind==="shot"&&S.space==="beauty")beautyOpen(id);else editor(e.kind,id);},
   "prompt-save":()=>savePrompt(false),
   "prompt-current":()=>savePrompt(true),
   "prompt-copy":()=>{const e=activeShot();if(S.dirty||e.head!==e.accepted)throw new Error("先保存并设为当前版本");return copy(accepted(e).content[P.medium+"_prompt"] || "");},
