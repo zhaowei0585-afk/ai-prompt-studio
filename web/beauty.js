@@ -21,7 +21,8 @@ function beautyDraft() {
       character:character?`${character.id}|${character.revision}`:"",idea:c.idea || c.start || "",
       platform:c.platform || "",format:c.format || S.project.project.format || "9:16",
       duration:c.duration || Math.min(600,Number(S.project.project.duration)||5),input_media:c.input_media || [],reference_notes:c.reference_notes || "",
-      image_prompt:c.image_prompt || "",video_prompt:c.video_prompt || "",bindings:c.bindings || {}};
+      image_prompt:c.image_prompt || "",video_prompt:c.video_prompt || "",bindings:c.bindings || {},
+      character_media_ids:[],character_reference_media_ids:[],outfit_media_ids:[]};
   }
   return B.draft;
 }
@@ -31,6 +32,8 @@ function beautyRead() {
   const f=new FormData(form);
   B.draft={...beautyDraft(),...Object.fromEntries(f)};
   if($('[data-media-group="input_media"]',form))B.draft.input_media=f.getAll("input_media");
+  for(const name of ["character_media_ids","character_reference_media_ids","outfit_media_ids"])
+    if($(`[data-media-group="${name}"]`,form))B.draft[name]=f.getAll(name);
   if(f.has("duration"))B.draft.duration=Number(f.get("duration"));
   if($('[name="vision"]',form))B.draft.vision=f.has("vision");
   return B.draft;
@@ -58,6 +61,41 @@ function beautyCharactersView() {
     }).join("")}</div>`+(!beautyCharacters().length?empty("建立你的人物形象","可以导入已有参考图，也可以先写形象词，到公开 AI 平台出图后再保存。"):"")+
     `<details class="history"><summary>素材库 · ${S.project.media.length} 个文件 / 参考视频抽帧</summary>
     <div class="row">${btn("导入素材","upload")}</div><div class="media-grid">${S.project.media.map(m=>mediaCard(m)).join("")}</div></details>`;
+}
+function beautyCharacterRef() {
+  const [id,rev]=(beautyDraft().character || "").split("|"), e=entity(id);
+  return {id, revision:Number(rev), entity:e, version:e?version(e,Number(rev) || e.accepted || e.head):null};
+}
+function beautyCharacterView() {
+  const d=beautyDraft(), picked=beautyCharacterRef(), c=picked.version?.content || {};
+  const has=(key)=>Object.prototype.hasOwnProperty.call(d,key);
+  const text=(key,fallback="")=>has(key)?d[key]:(c[key] || fallback);
+  const ids=(key)=>has(key)?d[key]:(c[key] || []);
+  const choices=beautyCharacters().filter(accepted).map(e=>[`${e.id}|${e.accepted}`,`${e.title} · v${e.accepted}`]);
+  if(d.character&&!choices.some(([id])=>id===d.character))choices.push([d.character,`${picked.entity?.title || picked.id} · v${picked.revision || "草稿"}`]);
+  const viewIds=ids("character_media_ids").length?ids("character_media_ids"):(c.media_ids || []);
+  const confirmed=!!(picked.entity?.accepted&&viewIds.length);
+  return `<form id="beauty-form" class="card character-workspace">
+    <div class="form-grid">${select("已有角色三视图","character",[["","新建角色 / 不沿用"],...choices],d.character)}
+      ${field("角色名称","character_title",text("character_title",picked.entity?.title || ""),"text","","maxlength=200")}</div>
+    <div class="media-grid">${viewIds.map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>
+    <div class="row">${badge(confirmed?"三视图已确认":"等待确认三视图",confirmed?"ok":"warn")}${picked.entity?stateBadge(picked.entity):""}${btn("打开共享人物库","workspace-library","asset")}</div>
+    <div class="form-grid">
+      <section>${area("稳定身份特征","character_description",text("character_description",c.description || ""),"脸型、发型、年龄感、气质、不可漂移的身份特征。",4)}</section>
+      <section>${area("身材微调","body_notes",text("body_notes"),"体型、比例、姿态、肩颈、腰臀、腿型等本地生成约束。",4)}</section>
+      <section>${area("面部 / 表情微调","face_notes",text("face_notes"),"表情、眼神、妆容、脸部细节；和稳定身份冲突时以身份为准。",4)}</section>
+      <section>${area("穿搭微调","outfit_notes",text("outfit_notes"),"服装版型、材质、领口、袖长、配饰；有参考图时以参考图为准。",4)}</section>
+    </div>
+    <details open><summary>三视图与参考素材</summary>
+      <label class="field">已确认三视图 / 角色结果图</label>${mediaChecks("character_media_ids",viewIds,"image/")}
+      <div class="row">${btn("导入三视图结果","beauty-upload","character_views")}${btn("导入人物参考图","beauty-upload","character_reference")}${btn("导入穿搭参考图","beauty-upload","outfit_reference")}</div>
+      <label class="field">人物参考图</label>${mediaChecks("character_reference_media_ids",ids("character_reference_media_ids"),"image/")}
+      <label class="field">穿搭参考图</label>${mediaChecks("outfit_media_ids",ids("outfit_media_ids"),"image/")}
+    </details>
+    ${area("三视图生成提示词","character_prompt",text("character_prompt",c.image_prompt || ""),"用于外部生图或后续 ComfyUI。生成后把结果导入上面的三视图结果。",7)}
+    <div class="row">${btn("组合三视图提示词","beauty-character-basic")}${btn("AI 优化三视图提示词","beauty-compose","character")}<button type="button" class="future-action" disabled title="尚未连接另一台电脑的 ComfyUI">ComfyUI 生三视图（待接入）</button></div>
+    <div class="row save-work">${btn("保存三视图草稿","beauty-character-save")}${btn("确认三视图并进入主题","beauty-character-current","","primary")}</div>
+  </form>`;
 }
 function beautyCreateView() {
   const d=beautyDraft(), e=beautyWork(), image=beautyTake(B.id), video=beautyTake(B.id,"video");
@@ -151,9 +189,9 @@ async function beautySave(setCurrent = false) {
   $$("#content button").forEach(b=>b.disabled=true);
   try{return await beautySaveVersion(setCurrent);}finally{B.saving=false;render();}
 }
-async function beautySaveVersion(setCurrent = false) {
-  const d=beautyRead(), e=beautyWork(), old=version(e), projectId=S.project.project.id;
-  if(!d.character&&!d.idea.trim()&&!d.image_prompt.trim()&&!d.video_prompt.trim())throw new Error("先选择人物或填写主题");
+async function beautySaveVersion(setCurrent = false, draft = null) {
+  const d=draft || beautyRead(), e=beautyWork(), old=version(e), projectId=S.project.project.id;
+  if(!d.character&&!d.idea.trim()&&!d.image_prompt.trim()&&!d.video_prompt.trim())throw new Error("先确认角色三视图或填写主题");
   const [characterId,rev]=(d.character || "").split("|");
   const deps=(B.historyDeps || old?.deps || []).filter(dep=>entity(dep.id)?.kind!=="asset" && dep.id!==old?.content.video_source?.id);
   if(characterId)deps.push({id:characterId,revision:Number(rev)});
@@ -188,6 +226,44 @@ async function beautyOpen(id) {
   beautyReset();B.id=id;localStorage.setItem("studio.beauty.work."+S.project.project.id,id);
   S.dirty=false;S.page="beauty-create";P.step=0;await productionLoad();render();
 }
+function beautyCharacterBasic() {
+  const d=beautyRead();
+  const title=d.character_title || "新角色";
+  d.character_prompt=[
+    `为成年原创虚拟女性“${title}”生成同一身份的角色三视图。`,
+    "输出正面、侧面、背面，白底或干净棚拍背景，五官、发型、身材比例和服装保持一致。",
+    d.character_description&&`稳定身份特征：${d.character_description}`,
+    d.body_notes&&`身材微调：${d.body_notes}`,
+    d.face_notes&&`面部与表情：${d.face_notes}`,
+    d.outfit_notes&&`穿搭要求：${d.outfit_notes}`,
+    d.character_reference_media_ids?.length&&"人物参考图已提供，身份和脸部以参考图为准。",
+    d.outfit_media_ids?.length&&"穿搭参考图已提供，服装版型、材质和配色以参考图为准。",
+    "避免夸张透视和遮挡；三视图用于后续本地 ComfyUI 角色一致性。"
+  ].filter(Boolean).join("\n");
+  S.dirty=true;render();toast("已组合三视图提示词，尚未调用 AI");
+}
+async function beautySaveCharacter(setCurrent=false) {
+  const d=beautyRead(), picked=beautyCharacterRef(), e=picked.entity, v=version(e);
+  const title=(d.character_title || e?.title || "新角色").trim();
+  if(!title)throw new Error("请填写角色名称");
+  const content={...v?.content,type:"角色",description:d.character_description || "",image_prompt:d.character_prompt || "",
+    body_notes:d.body_notes || "",face_notes:d.face_notes || "",outfit_notes:d.outfit_notes || "",
+    reference_media_ids:d.character_reference_media_ids || [],outfit_media_ids:d.outfit_media_ids || [],
+    media_ids:d.character_media_ids?.length?d.character_media_ids:(v?.content.media_ids || [])};
+  if(setCurrent&&!content.media_ids.length)throw new Error("请先导入并选择三视图结果图");
+  const saved=await projectAPI("save",{id:e?.id || "CHAR-"+crypto.randomUUID().replaceAll("-",""),kind:"asset",title,
+    base_revision:e?.head || 0,content,deps:v?.deps || [],set_current:setCurrent,expected_accepted:e?.accepted ?? null});
+  d.character=`${saved.id}|${saved.revision}`;
+  d.character_title=title;d.character_description=content.description;d.character_prompt=content.image_prompt;
+  d.body_notes=content.body_notes;d.face_notes=content.face_notes;d.outfit_notes=content.outfit_notes;
+  d.character_reference_media_ids=content.reference_media_ids;d.outfit_media_ids=content.outfit_media_ids;d.character_media_ids=content.media_ids;
+  if(setCurrent){
+    await beautySaveVersion(true,d);
+    toast("角色三视图已确认，进入主题前可继续微调");
+  }else{
+    S.dirty=false;await refresh();toast("三视图草稿已保存，尚未确认");
+  }
+}
 function beautyBasic() {
   const d=beautyRead();
   if(!d.idea.trim())throw new Error("请先写一句话想法");
@@ -199,19 +275,29 @@ function beautyBasic() {
 }
 async function beautyCompose(target) {
   beautyRead();
-  const e=await beautyEnsureSaved(), d=beautyDraft(), image=beautyTake(e.id);
-  if(target==="video"&&d.generation_route==="i2v"&&!image)throw new Error("图生视频路线请先选定当前图片");
+  const d=beautyDraft();
   if(d.vision&&!S.boot.settings.vision_model)throw new Error("请先在模型连接中配置并测试视觉模型");
-  const charId=d.character?.split("|")[0];
-  const contextIds=[e.id];
-  const char=charId?version(entity(charId),Number(d.character.split("|")[1])):null;
-  const candidates=[...(char?.content.media_ids || []),...d.input_media,...(target==="video"&&image?image.version.content.result_media:[])];
-  const images=[...new Set(candidates)].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
-  const input={stage:"B04",episode:e.id,scope:target,source_ids:[],context_ids:contextIds,
-    media_ids:d.vision?images:[],extra:`只为这一条作品生成${target==="video"?"视频":"图片"}提示词。\n主题：${beautyModes[d.mode]}；平台：${d.platform || "未知，通用中文"}。\n人物实际引用版本：${d.character || "未选人物"}；设定：${char?JSON.stringify(char.content):"按想法设计成年原创人物"}。\n本次要求：${d.repair_note || "依据想法完成"}。\n${target==="video"?`生成路线：${d.generation_route || "prompt"}。目标时长 ${d.duration} 秒。\n${image?`实际当前图片记录：${JSON.stringify({ref:image.ref,content:image.version.content})}`:"直接根据主题写动作与镜头描述，无已选首帧。"}\n参考视频只依据人工标注的动作与时间范围，不声称看过连续视频。`:"仅描述静态画面，不生成视频词。"}\n${B.repair?`返修按用户描述：${version(B.repair).content.feedback || ""}\n实际用词：${version(B.repair).content.actual_prompt || ""}`:""}`};
+  let input,pending;
+  if(target==="character"){
+    const images=[...new Set([...(d.character_reference_media_ids || []),...(d.outfit_media_ids || []),...(d.character_media_ids || [])])].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
+    input={stage:"B04",episode:B.id || "__character__",scope:"image",source_ids:[],context_ids:[],media_ids:d.vision?images:[],
+      extra:`只生成角色三视图 image_prompt，不生成视频词。\n角色名称：${d.character_title || "新角色"}。\n稳定身份：${d.character_description || "待设计"}。\n身材微调：${d.body_notes || "按用户输入自由处理"}。\n面部 / 表情微调：${d.face_notes || "按用户输入自由处理"}。\n穿搭微调：${d.outfit_notes || "按用户输入自由处理"}。\n${images.length?"已选择人物或穿搭参考图，提示词需明确这些图片需要在生成平台另行上传。":"没有参考图时按成年原创虚拟角色设计。"}\n输出目标：同一身份的正面、侧面、背面三视图，保持身材、脸、发型和服装一致。`};
+    pending={project:S.project.project.id,id:B.id,revision:beautyWork()?.head || 0,input,target,vision:!!d.vision};
+  }else{
+    const e=await beautyEnsureSaved(), image=beautyTake(e.id);
+    if(target==="video"&&d.generation_route==="i2v"&&!image)throw new Error("图生视频路线请先选定当前图片");
+    const charId=d.character?.split("|")[0];
+    const contextIds=[e.id];
+    const char=charId?version(entity(charId),Number(d.character.split("|")[1])):null;
+    const candidates=[...(char?.content.media_ids || []),...d.input_media,...(target==="video"&&image?image.version.content.result_media:[])];
+    const images=[...new Set(candidates)].filter(id=>beautyMedia(id)?.mime.startsWith("image/"));
+    input={stage:"B04",episode:e.id,scope:target,source_ids:[],context_ids:contextIds,
+      media_ids:d.vision?images:[],extra:`只为这一条作品生成${target==="video"?"视频":"图片"}提示词。\n主题：${beautyModes[d.mode]}；平台：${d.platform || "未知，通用中文"}。\n人物实际引用版本：${d.character || "未选人物"}；设定：${char?JSON.stringify(char.content):"按想法设计成年原创人物"}。\n本次要求：${d.repair_note || "依据想法完成"}。\n${target==="video"?`生成路线：${d.generation_route || "prompt"}。目标时长 ${d.duration} 秒。\n${image?`实际当前图片记录：${JSON.stringify({ref:image.ref,content:image.version.content})}`:"直接根据主题写动作与镜头描述，无已选首帧。"}\n参考视频只依据人工标注的动作与时间范围，不声称看过连续视频。`:"仅描述静态画面，不生成视频词。"}\n${B.repair?`返修按用户描述：${version(B.repair).content.feedback || ""}\n实际用词：${version(B.repair).content.actual_prompt || ""}`:""}`};
+    pending={project:S.project.project.id,id:e.id,revision:e.head,input,target,image:image?.ref,
+      firstFrame:image?.version.content.result_media[0],repairNote:d.repair_note || "",vision:!!d.vision};
+  }
   const built=await projectAPI("compose",input);
-  B.pending={project:S.project.project.id,id:e.id,revision:e.head,input,built,target,image:image?.ref,
-    firstFrame:image?.version.content.result_media[0],repairNote:d.repair_note || "",vision:!!d.vision};
+  B.pending={...pending,built};
   const names=built.media_ids.map(id=>beautyMedia(id)?.name).join("、");
   modal("提示词生成预览",`<div class="notice">发送 ${built.characters} 字符、${built.media_ids.length} 张图片${names?"："+esc(names):"；未发送图片时仅依据文字描述"}。不会调用生图 API。复制到外部对话平台时，相关参考图片需手工上传。</div>
     ${area("完整指令","beauty-instruction",built.prompt,"",9)}
@@ -220,11 +306,15 @@ async function beautyCompose(target) {
 }
 function beautyLoadResult(result, run) {
   const p=B.pending;
-  if(!p || S.project.project.id!==p.project || B.id!==p.id || beautyWork()?.head!==p.revision || S.dirty)
+  if(!p || S.project.project.id!==p.project || (p.target!=="character"&&(B.id!==p.id || beautyWork()?.head!==p.revision || S.dirty)))
     throw new Error("作品已变化，生成记录已保留；请回到原作品重新操作");
   const key=p.target==="video"?"video_prompt":"image_prompt";
   if(typeof result[key]!=="string" || !result[key].trim())throw new Error("结果缺少 "+key+" 正文");
   const d=beautyDraft();
+  if(p.target==="character"){
+    d.character_prompt=result[key];d.vision=p.vision;S.dirty=true;closeModal(true);render();toast("三视图提示词已载入，生成结果后仍停留在本节点确认");
+    return;
+  }
   if(p.target!=="video")beautyClearVideo();
   d[key]=result[key];d.vision=p.vision;d.repair_note=p.repairNote;
   if(p.target==="video"&&p.image){d.video_source=p.image;d.bindings={first_frame:p.firstFrame};}
@@ -287,6 +377,7 @@ async function beautyUpload(files,target) {
   const added=[];
   for(const file of files){
     if(target==="result"&&B.result?.medium==="image"&&!file.type.startsWith("image/"))throw new Error("图片结果请选择图片文件");
+    if(["character_views","character_reference","outfit_reference"].includes(target)&&!file.type.startsWith("image/"))throw new Error("角色三视图和参考图只支持图片："+file.name);
     added.push(await uploadFile(file,projectId));
   }
   if(S.project?.project.id!==projectId)return;
@@ -296,8 +387,10 @@ async function beautyUpload(files,target) {
     for(const m of added)select.add(new Option(m.name,m.id));
     select.value=added[0].id;S.modalDirty=true;
   }else{
-    B.draft.input_media=[...new Set([...B.draft.input_media,...added.map(m=>m.id)])];
-    beautyClearVideo();S.dirty=true;render();
+    const key={character_views:"character_media_ids",character_reference:"character_reference_media_ids",outfit_reference:"outfit_media_ids"}[target] || "input_media";
+    B.draft[key]=[...new Set([...(B.draft[key] || []),...added.map(m=>m.id)])];
+    if(key==="input_media")beautyClearVideo();
+    S.dirty=true;render();
   }
   toast("素材已导入");
 }
@@ -317,6 +410,9 @@ Object.assign(actions,{
   },
   "beauty-save":async()=>{await beautySave(false);toast("草稿已保存，下游仍使用原当前版本");},
   "beauty-current":async()=>{await beautySave(true);toast("已保存并设为当前版本");},
+  "beauty-character-basic":beautyCharacterBasic,
+  "beauty-character-save":()=>beautySaveCharacter(false),
+  "beauty-character-current":()=>beautySaveCharacter(true),
   "beauty-basic":beautyBasic,
   "beauty-compose":beautyCompose,
   "beauty-generate":beautyGenerate,
@@ -337,7 +433,8 @@ Object.assign(actions,{
   "beauty-save-result":beautySaveResult,
   "beauty-upload":target=>{
     B.uploadTarget=target;
-    $("#beauty-upload-input").accept=target==="result"&&B.result?.medium==="image"?"image/png,image/jpeg,image/webp,image/gif":"image/*,video/mp4,video/webm,video/quicktime";
+    const imageOnly=["character_views","character_reference","outfit_reference"].includes(target)||target==="result"&&B.result?.medium==="image";
+    $("#beauty-upload-input").accept=imageOnly?"image/png,image/jpeg,image/webp,image/gif":"image/*,video/mp4,video/webm,video/quicktime";
     $("#beauty-upload-input").multiple=target!=="result";
     $("#beauty-upload-input").click();
   },
@@ -409,6 +506,9 @@ document.addEventListener("change",async event=>{
   const el=event.target;
   if(el.closest("#beauty-form")){
     beautyRead();S.dirty=true;
+    if(el.name==="character"){
+      for(const key of ["character_title","character_description","body_notes","face_notes","outfit_notes","character_prompt","character_media_ids","character_reference_media_ids","outfit_media_ids"])delete B.draft[key];
+    }
     if(["character","mode","input_media","format"].includes(el.name))beautyClearVideo();
     if(["character","mode"].includes(el.name))render();
   }

@@ -1,7 +1,7 @@
 "use strict";
 
 const P={step:0,status:null,shot:"",focus:"",medium:"image",filter:"all",index:0,compare:[],rows:[],busy:false,promptDraft:null,voiceDraft:null};
-const flowLabels=()=>S.space==="drama"?["编写剧本","剧本分镜","文字生图","图生视频","人声配音","导出"]:["选择人物","选择今日主题","生成视频","导出"];
+const flowLabels=()=>S.space==="drama"?["编写剧本","剧本分镜","文字生图","图生视频","人声配音","导出"]:["角色三视图","选择主题","生成视频","导出"];
 function productionReset(){Object.assign(P,{step:0,status:null,shot:"",focus:"",medium:"image",filter:"all",index:0,compare:[],rows:[],promptDraft:null,voiceDraft:null});}
 async function productionLoad(){
   P.status=S.project?await projectAPI("production",S.space==="drama"?{episode:S.episode}:{work:B.id || "__new__"}):null;
@@ -142,16 +142,10 @@ function beautyFlowView(){
   const d=beautyDraft(),e=beautyWork(),image=beautyTake(B.id);
   let body="";
   if(P.step===0){
-    const choices=beautyCharacters().filter(accepted).map(a=>[`${a.id}|${a.accepted}`,a.title]);
-    if(d.character&&!choices.some(([id])=>id===d.character))choices.push([d.character,d.character+" · 历史人物版本"]);
-    const [id,rev]=(d.character || "").split("|"),char=version(entity(id),Number(rev));
-    body=`<form id="beauty-form" class="card">${select("当前人物","character",[["","选择一位人物"],...choices],d.character)}
-      <div class="media-grid">${(char?.content.media_ids || []).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}</div>
-      <p>${esc(char?.content.description || "选择带参考图的人物，保持多条作品的人物身份。")}</p>
-      <div class="row">${btn("新建人物","edit-asset")}${btn("打开共享人物库","workspace-library","asset")}</div></form>`;
+    body=beautyCharacterView();
   }else if(P.step===1){
     body=`<form id="beauty-form" class="card"><div class="theme-cards">${Object.entries(beautyModes).map(([id,title])=>btn(title,"beauty-theme",id,d.mode===id?"active":"")).join("")}</div>
-      ${field("作品名称","title",d.title)}${area("今日主题","idea",d.idea,"例如：咖啡店窗边，白色毛衣，自然回眸。",4)}
+      ${field("作品名称","title",d.title)}${area("主题想法","idea",d.idea,"例如：咖啡店窗边，白色毛衣，自然回眸。",4)}
       <div class="form-grid">${field("生成平台 / 模型","platform",d.platform)}${select("画幅","format",[["9:16","9:16"],["16:9","16:9"],["1:1","1:1"]],d.format)}
       ${field("时长 / 秒","duration",d.duration,"number","","min=1 max=600")}</div></form>`;
   }else if(P.step===2){
@@ -169,8 +163,8 @@ function beautyFlowView(){
       ${check("本次优化发送相关图片给视觉模型","vision","yes",!!d.vision)}${capabilityNotice()}
       <details ${B.repair?"open":""}><summary>返修要求</summary>${area("本次只改哪里","repair_note",d.repair_note || "","",3)}</details></form>`;
   }else body=deliveryView()+`<div class="row">${e?btn("主题保存为模板","beauty-favorite",e.id):""}${btn("沿用人物再做一条","beauty-another")}</div>`;
-  return flowNav()+section(e?.title || "今日新作品","每步确认当前版本后继续。",btn("＋ 新作品","beauty-new"))+
-    (P.step<3?versionNotice(e):"")+body+(P.step<3?`<div class="row save-work">${btn("保存草稿","beauty-save")}${btn("保存并设为当前版本","beauty-current","","primary")}</div>`:"")+
+  return flowNav()+section(e?.title || (P.step===0?"角色三视图":"今日新作品"),P.step===0?"确认角色正面、侧面、背面后再进入主题。":"每步确认当前版本后继续。",btn("＋ 新作品","beauty-new"))+
+    (P.step>0&&P.step<3?versionNotice(e):"")+body+(P.step>0&&P.step<3?`<div class="row save-work">${btn("保存草稿","beauty-save")}${btn("保存并设为当前版本","beauty-current","","primary")}</div>`:"")+
     (P.step===2?galleryView():"")+flowFooter();
 }
 function capabilityNotice(){

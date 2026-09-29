@@ -834,7 +834,7 @@ def scoped_shots(state, episode="", work=""):
 
 def production_status(state, episode="", work=""):
     drama = state["project"]["track"] == "drama"
-    labels = ["编写剧本", "剧本分镜", "文字生图", "图生视频", "人声配音", "导出"] if drama else ["选择人物", "选择今日主题", "生成视频", "导出"]
+    labels = ["编写剧本", "剧本分镜", "文字生图", "图生视频", "人声配音", "导出"] if drama else ["角色三视图", "选择主题", "生成视频", "导出"]
     issues, refs = [], []
     shots = scoped_shots(state, episode, work)
     media = {m["id"]: m for m in state["media"]}
@@ -861,18 +861,20 @@ def production_status(state, episode="", work=""):
         if not shots:
             issue(1, "当前集还没有分镜")
     elif not shots:
-        issue(0, "先选择人物并保存当前作品")
+        issue(0, "先确认角色三视图并保存当前作品")
     for shot in shots:
-        v = check_current(shot, 1 if drama else 0)
+        v = check_current(shot, 1)
         c = v["content"]
         if drama and not (c.get("start") or c.get("description")):
             issue(1, shot["title"] + " 缺少画面目标", shot)
         if not drama:
             char = next((find_version(state, d) for d in v["deps"] if find_version(state, d) and find_version(state, d)[0]["kind"] == "asset"), None)
             if not char or not char[1]["content"].get("media_ids"):
-                issue(0, "请选择有参考图的当前人物", shot)
+                issue(0, "请先确认角色三视图", shot)
+            else:
+                check_current(char[0], 0)
             if not c.get("idea", "").strip() or not c.get("format"):
-                issue(1, "请填写今日主题和画幅", shot)
+                issue(1, "请填写主题和画幅", shot)
             if c.get("generation_route") == "reference" and not any(media.get(i, {}).get("mime", "").startswith("video/") for i in c.get("input_media", [])):
                 issue(2, "参考视频路线需要实际参考视频", shot)
             if c.get("generation_route") == "reference" and c.get("reference_support") != "supported":

@@ -257,9 +257,13 @@ def main():
             beauty = request("/api/projects", {"name":"人物作品","track":"beauty"}, expected=201)
             bp = "/api/projects/" + beauty["id"]
             bm = request(bp+"/upload", raw=png, headers={"X-Filename":"portrait.png"}, expected=201)
+            character = request(bp+"/save", {"id":"CHAR-1","kind":"asset","title":"窗边人物",
+                "content":{"type":"角色","description":"成年原创人物，黑色齐肩发","media_ids":[bm["id"]]},
+                "set_current":True,"expected_accepted":None})
             work = request(bp+"/save", {"id":"WORK-1","kind":"shot","title":"咖啡店","episode":"WORK-1",
                 "content":{"workflow":"beauty","mode":"daily","idea":"咖啡店窗边","duration":5,
-                           "image_prompt":"白色毛衣，自然光","video_prompt":"","input_media":[],"bindings":{}}})
+                           "character_id":character["id"],"image_prompt":"白色毛衣，自然光","video_prompt":"","input_media":[],"bindings":{}},
+                "deps":[{"id":character["id"],"revision":character["revision"]}]})
             request(bp+"/accept", {"id":work["id"],"revision":1,"expected_accepted":None})
             assert request(bp)["checks"]["WORK-1"] == []  # No ComfyUI profile or video required.
             shot_ref = {"id":work["id"],"revision":1}
@@ -280,7 +284,7 @@ def main():
             video_work = request(bp+"/save", {"id":"WORK-1","kind":"shot","title":"咖啡店","episode":"WORK-1","base_revision":1,
                 "content":dict(work["content"],video_prompt=bresult["result"]["video_prompt"],
                                video_source=image_ref,bindings={"first_frame":bm["id"]}),
-                "deps":[dict(image_ref,frozen=True)]})
+                "deps":[{"id":character["id"],"revision":character["revision"]},dict(image_ref,frozen=True)]})
             request(bp+"/accept", {"id":"WORK-1","revision":2,"expected_accepted":1})
             assert request(bp)["checks"]["WORK-1"] == []
             invalid_source = dict(video_work["content"],video_source=shot_ref)
