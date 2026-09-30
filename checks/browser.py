@@ -47,10 +47,11 @@ def main():
                 images.append(str(image))
         portrait = app.store.add_media(pid, "portrait.png", io.BytesIO(png), len(png))
         app.store.save(pid, {"id": "CHAR-1", "kind": "asset", "title": "共享原创人物",
-            "content": {"type": "角色", "description": "成年人物，黑色齐肩发", "media_ids": [portrait["id"]]},
+            "content": {"type": "角色", "description": "成年人物，黑色齐肩发", "image_prompt": "角色三视图",
+                        "media_ids": [portrait["id"]], "three_view_confirmed": True},
             "set_current": True})
         novel = Path(temp)/"第一章.txt"
-        novel.write_text("雨夜里，她收到一封没有署名的信。", encoding="utf-8")
+        novel.write_text("雨夜里，她收到一封没有署名的信。她把信藏进抽屉。", encoding="utf-8")
         unmatched = Path(temp)/"unmatched.png"
         unmatched.write_bytes(png)
         errors = []
@@ -86,6 +87,10 @@ def main():
                 expect(page.locator(".script-sources")).to_be_visible()
                 page.locator("#text-input").set_input_files(str(novel))
                 expect(page.locator('[name="source_type"]')).to_have_value("novel")
+                expect(page.locator('[name="locator_start"]')).to_be_visible()
+                expect(page.locator('[name="locator_end"]')).to_be_visible()
+                page.locator('[name="locator_start"]').fill("雨夜里，她收到一封没有署名的信")
+                page.locator('[name="locator_end"]').fill("她把信藏进抽屉")
                 page.locator('[name="reviewed"]').check()
                 page.locator('#record-form button[value="current"]').click()
                 expect(page.locator("#modal")).not_to_be_visible()
@@ -104,9 +109,12 @@ def main():
                 expect(page.locator(".script-sources .queue-row")).to_have_count(3)
                 expect(page.locator('#context-form [name="source_ids"]:checked')).to_have_count(3)
                 expect(page.locator('#context-form [name="media_ids"]:checked')).to_have_count(1)
+                page.locator('#context-form [name="scope_start"]').fill("雨夜里，她收到一封没有署名的信")
+                page.locator('#context-form [name="scope_end"]').fill("她把信藏进抽屉")
                 click("compose")
                 prompt = page.locator('[name="composed"]').input_value()
                 assert all(f'"source_type": "{kind}"' in prompt for kind in ("novel", "comic", "joke"))
+                assert "从“雨夜里，她收到一封没有署名的信”到“她把信藏进抽屉”" in prompt
                 assert "铺垫、误导、反转和包袱" in prompt
                 click("close")
                 page.set_viewport_size({"width": 390, "height": 844})
@@ -114,13 +122,24 @@ def main():
                 assert page.locator(".flow-footer").evaluate("(e) => getComputedStyle(e).position") == "static"
                 page.set_viewport_size({"width": 1440, "height": 1000})
                 click("flow-step", "2")
-                expect(page.locator(".flow-nav button")).to_have_count(6)
+                expect(page.locator('.flow-nav [aria-current="step"]')).to_contain_text("角色一致性")
+                expect(page.locator(".card").filter(has_text="共享原创人物").first).to_contain_text("三视图已确认")
+                click("flow-step", "3")
+                expect(page.locator(".flow-nav button")).to_have_count(7)
                 assert page.locator(".flow-nav button").all_text_contents() == [
-                    "✓编写剧本", "✓剧本分镜", "03文字生图", "04图生视频", "05人声配音", "06导出"]
+                    "✓编写剧本", "✓剧本分镜", "✓角色一致性", "04文字生图", "05图生视频", "06人声配音", "07导出"]
                 expect(page.locator('#gallery [data-action="inbox-upload"]')).to_have_text("导入生成结果")
                 expect(page.get_by_text("生成结果导入")).to_have_count(0)
                 expect(page.locator('[data-action="comfyui-generate"][data-id="image"]')).to_be_disabled()
                 expect(page.locator('[data-action="comfyui-generate"][data-id="image"]')).to_have_text("ComfyUI 生图（待接入）")
+                page.get_by_text("批量生成 / 粘贴图片提示词", exact=True).click()
+                page.get_by_text("AI 辅助 · 来源、参考素材与生成前预览", exact=True).click()
+                click("compose")
+                expect(page.locator("#modal")).to_contain_text("共 5 批")
+                expect(page.locator("#modal")).to_contain_text("内置 v0.4")
+                expect(page.locator('[name="composed"]')).to_contain_text("第 5 / 5 批")
+                click("close")
+                page.get_by_text("批量生成 / 粘贴图片提示词", exact=True).click()
                 no_overflow()
                 # Draft changes never replace the current version and can be cancelled on navigation.
                 page.locator('#prompt-form [name="prompt"]').fill("新的图片提示词")
@@ -228,6 +247,46 @@ def main():
                 expect(page.locator('.flow-nav [aria-current="step"]')).to_contain_text("文字生图")
                 expect(page.locator("#context-form")).to_be_visible()
                 print("PASS compact stale warning and direct latest-content route", flush=True)
+                click("flow-step", "2")
+                click("edit-asset", "")
+                page.locator('#record-form [name="title"]').fill("原创人物的本体")
+                page.locator('#record-form [name="type"]').select_option("造型")
+                expect(page.locator('[name="three_view_confirmed"]')).not_to_be_visible()
+                expect(page.locator("#asset-media-label")).to_have_text("选定参考图")
+                page.locator('#record-form [name="parent_asset_id"]').select_option("CHAR-1")
+                page.locator('#record-form [name="form_description"]').fill("螳螂本体，六足和折叠翅")
+                page.get_by_text("单人生产参考（可选）", exact=True).click()
+                single_ref = Path(temp)/"single-angle.png"
+                single_ref.write_bytes(png)
+                click("upload", "production_media_ids")
+                page.locator("#upload-input").set_input_files(str(single_ref))
+                expect(page.locator('[name="production_media_ids"]:checked')).to_have_count(1)
+                expect(page.locator('[name="media_ids"]:checked')).to_have_count(0)
+                single_id = page.locator('[name="production_media_ids"]:checked').input_value()
+                page.locator('[name="production_notes"]').fill("单只本体侧面")
+                page.set_viewport_size({"width": 390, "height": 844})
+                no_overflow()
+                page.screenshot(path="/tmp/prompt-studio-form-mobile.png", full_page=True)
+                page.locator('#record-form button[value="current"]').click()
+                expect(page.locator("#modal")).not_to_be_visible()
+                form = next(e for e in state()["entities"] if e["title"] == "原创人物的本体")
+                assert form["versions"][-1]["content"]["parent_asset_id"] == "CHAR-1"
+                assert form["versions"][-1]["content"]["production_reference"]["media_ids"] == [single_id]
+                page.set_viewport_size({"width": 1440, "height": 1000})
+                click("flow-step", "1")
+                page.get_by_text("镜头顺序、人物与场景", exact=True).click()
+                click("edit-shot", shots[0]["id"])
+                page.locator('[name="dialogue"]').fill("甲：「别动。」")
+                page.locator('[name="composition"]').fill("门在右侧，人物在左")
+                page.locator('[name="lighting"]').fill("走廊顶灯柔光")
+                page.locator('[name="continuity"]').fill("本镜尚未进入房间")
+                page.locator(f'[name="assets"][value="{form["id"]}"]').check()
+                page.locator('#record-form button[value="current"]').click()
+                expect(page.locator("#modal")).not_to_be_visible()
+                saved_shot = next(e for e in state()["entities"] if e["id"] == shots[0]["id"])["versions"][-1]["content"]
+                assert saved_shot["dialogue"] == "甲：「别动。」" and saved_shot["order"] == 0
+                assert saved_shot["asset_ids"] == [form["id"]] and saved_shot["lighting"] == "走廊顶灯柔光"
+                print("PASS batch preview, form ownership, production reference and shot-field browser persistence", flush=True)
                 # New single-work line: shared person -> topic -> prompt-to-video -> export.
                 click("switch-space", "beauty")
                 click("new-project")
@@ -238,12 +297,12 @@ def main():
                 expect(page.locator(".flow-nav button")).to_have_count(4)
                 assert page.locator(".flow-nav button").all_text_contents() == ["01角色三视图", "02选择主题", "03生成视频", "04导出"]
                 click("workspace-library", "asset")
-                click("library-import")
+                click("library-import", pid+"|CHAR-1|1")
                 expect(page.locator("#modal")).not_to_be_visible()
                 page.locator('[name="character"]').select_option(index=1)
                 expect(page.locator("#beauty-form")).to_contain_text("身材 Type")
                 expect(page.locator("#beauty-form")).to_contain_text("穿搭参考图")
-                expect(page.locator('[name="character_prompt"]')).to_contain_text("正面、侧面、背面")
+                expect(page.locator('[name="character_prompt"]')).to_have_value("角色三视图")
                 expect(page.locator('[name="outfit_strategy"]')).to_have_value("keep")
                 page.locator('[name="body_chest"]').select_option("large")
                 page.locator('[name="body_waist"]').select_option("slim")
@@ -278,6 +337,7 @@ def main():
                 page.locator('[name="idea"]').fill("窗边读信后抬眼微笑")
                 page.locator('[name="action"]').fill("人物坐在窗边读信，听见门响后抬眼，最后看向镜头。")
                 page.locator('[name="dialogue"]').fill("今天，也许会有好消息。")
+                page.locator('[name="frame_description"]').fill("人物坐在窗边读信，双手持信尚未打开。")
                 page.locator('[name="title"]').fill("今天的窗边")
                 click("beauty-theme", "outfit")
                 expect(page.locator('[name="action"]')).to_have_value("人物坐在窗边读信，听见门响后抬眼，最后看向镜头。")
@@ -309,7 +369,8 @@ def main():
                 expect(page.locator("#beauty-form")).to_contain_text("还没有当前首帧")
                 click("beauty-basic")
                 expect(page.locator('[name="image_prompt"]')).to_contain_text("人物坐在窗边读信")
-                expect(page.locator('[name="image_prompt"]')).to_contain_text("今天，也许会有好消息")
+                expect(page.locator('[name="image_prompt"]')).not_to_contain_text("今天，也许会有好消息")
+                expect(page.locator('[name="image_prompt"]')).not_to_contain_text("听见门响后抬眼")
                 click("beauty-current")
                 click("beauty-compose", "image")
                 expect(page.locator('[name="beauty-instruction"]')).to_contain_text("图片必须从简易剧本中选择")

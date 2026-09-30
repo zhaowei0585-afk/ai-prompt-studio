@@ -1,7 +1,7 @@
 "use strict";
 
 const P={step:0,status:null,shot:"",focus:"",medium:"image",filter:"all",index:0,compare:[],rows:[],busy:false,promptDraft:null,voiceDraft:null};
-const flowLabels=()=>S.space==="drama"?["编写剧本","剧本分镜","文字生图","图生视频","人声配音","导出"]:["角色三视图","选择主题","生成视频","导出"];
+const flowLabels=()=>S.space==="drama"?["编写剧本","剧本分镜","角色一致性","文字生图","图生视频","人声配音","导出"]:["角色三视图","选择主题","生成视频","导出"];
 function productionReset(){Object.assign(P,{step:0,status:null,shot:"",focus:"",medium:"image",filter:"all",index:0,compare:[],rows:[],promptDraft:null,voiceDraft:null});}
 async function productionLoad(){
   P.status=S.project?await projectAPI("production",S.space==="drama"?{episode:S.episode}:{work:B.id || "__new__"}):null;
@@ -38,20 +38,23 @@ function productionView(){
   if(P.step<2){
     S.stage=["M00","M01"][P.step];
     body=(P.step===0?scriptSourcesView():"")+stagesView()+(P.step===1?`<details class="card"><summary>镜头顺序、人物与场景</summary>${shotsView()}${assetsView()}</details>`:"");
-  }else if(P.step<4){
-    S.stage=P.step===2?"M02":"M03";P.medium=P.step===2?"image":"video";
+  }else if(S.space==="drama"&&P.step===2){
+    body=assetsView();
+  }else if(P.step<5){
+    S.stage=P.step===3?"M02":"M03";P.medium=P.step===3?"image":"video";
     body=`<details class="card"><summary>批量生成 / 粘贴${P.medium==="image"?"图片":"视频"}提示词</summary>${stagesView()}</details>`+
       promptWorkspace()+galleryView();
-  }else body=P.step===4?voiceView():deliveryView();
+  }else body=P.step===5?voiceView():deliveryView();
   return flowNav()+body+flowFooter();
 }
 function actionCenter(){
   const shots=episodeEntities("shot"), list=S.space==="drama"?shots:entities("shot");
   const pending=entities().filter(e=>!["run","attempt"].includes(e.kind)&&e.accepted!==e.head);
   const unreviewed=entities("attempt").filter(e=>version(e).content.judgment==="unreviewed");
-  const reviewStep=S.space==="beauty"?2:(unreviewed.some(e=>(version(e).content.medium || "video")==="video")?3:2);
+  const assetCandidates=S.space==="drama"&&unreviewed.some(e=>entity(version(e).content.prompt_ref?.id)?.kind==="asset");
+  const reviewStep=S.space==="beauty"?2:assetCandidates?2:unreviewed.some(e=>(version(e).content.medium || "video")==="video")?4:3;
   const groups=flowLabels().map((label,i)=>({label,step:i,issues:(P.status?.issues || []).filter(x=>x.step===i)})).filter(g=>g.issues.length);
-  return `<div class="hero"><span class="hero-tag">${S.space==="drama"?"一集六步":"一条视频四步"} / ${esc(S.space==="drama"?S.episode:"单作品创作")}</span><h2>${esc(S.project.project.name)}</h2><p>${flowLabels().join(" → ")}</p><div class="row">${btn("继续制作","flow-step",String(groups[0]?.step || 0),"primary")}${S.space==="beauty"?btn("＋ 新作品","beauty-new"):""}</div></div>
+  return `<div class="hero"><span class="hero-tag">${S.space==="drama"?"一集七步":"一条视频四步"} / ${esc(S.space==="drama"?S.episode:"单作品创作")}</span><h2>${esc(S.project.project.name)}</h2><p>${flowLabels().join(" → ")}</p><div class="row">${btn("继续制作","flow-step",String(groups[0]?.step || 0),"primary")}${S.space==="beauty"?btn("＋ 新作品","beauty-new"):""}</div></div>
     <div class="stats">${[["镜头 / 作品",list.length],["待设为当前",pending.length],["待筛选",unreviewed.length],["已选视频",list.filter(e=>S.project.selected[e.id]).length]].map(([label,n])=>`<div class="stat"><span>${label}</span><strong>${n}</strong></div>`).join("")}</div>
     ${section("现在该处理什么","点击一项，直接进入需要处理的节点。",btn("进入候选筛选","flow-step",String(reviewStep)))}
     <div class="action-queue">${groups.map(g=>`<article class="queue-row"><div><h3>${g.label} · ${g.issues.length} 项</h3><p>${esc(g.issues.slice(0,2).map(x=>x.message).join("；"))}</p></div>${btn("去处理","flow-step",String(g.step))}</article>`).join("")||`<article class="queue-row"><div><h3>本次交付已就绪</h3><p>已选结果、配音和版本检查通过。</p></div>${btn("导出","flow-step",String(flowLabels().length-1))}</article>`}</div>
@@ -74,10 +77,11 @@ function promptWorkspace(){
   const comfy=`<button type="button" class="future-action" data-action="comfyui-generate" data-id="${P.medium}" disabled title="尚未连接另一台电脑的 ComfyUI">${P.medium==="image"?"ComfyUI 生图":"ComfyUI 生视频"}（待接入）</button>`;
   return `<div class="production-layout"><aside class="shot-list" aria-label="镜头列表">${productionShots().map(s=>`<button data-action="flow-shot" data-id="${esc(s.id)}" class="${s.id===e.id?"active":""}">${esc(s.id)}<small>${esc(s.title)}</small></button>`).join("")}</aside>
     <article class="card">${section(e.title,`${e.id} · ${c.duration} 秒`,btn("详情与历史","edit-shot",e.id))}${versionNotice(e)}
+      ${S.space==="drama"?`<details><summary>镜头交接与缺项</summary><p>起点：${esc(c.start || "未填写")} → 终点：${esc(c.end || "未填写")}</p><p>对白：${esc(c.dialogue || "无 / 尚未填写")}</p><p>连续性：${esc(c.continuity || "未填写")}</p><p>构图：${esc(c.composition || c.camera || "未填写")}；光源：${esc(c.lighting || "未填写")}</p><p>参考用途：${esc(c.reference_notes || "未填写")}</p><p>这些提示只检查字段，画面效果仍需生成后筛选。</p></details>`:""}
       <form id="prompt-form">${area(P.medium==="image"?"图片提示词":"视频提示词","prompt",P.promptDraft ?? c[P.medium+"_prompt"] ?? "","到生成平台使用这一段正文。",7)}
       <div class="row">${btn("保存草稿","prompt-save")}${btn("保存并设为当前版本","prompt-current","","primary")}${btn("复制当前提示词","prompt-copy")}${comfy}</div></form></article>
     <aside class="card"><h3>${P.medium==="image"?"参考与参数":"实际首帧"}</h3>${frame&&beautyMedia(frame)?mediaCard(beautyMedia(frame),true):'<p>当前没有首帧，先完成文字生图并选定图片。</p>'}
-      <p>${esc(c.platform || "公开平台 · 手动生成")}</p>${btn("人物 / 场景资产","flow-assets")}</aside></div>`;
+      <p>${esc(c.platform || "公开平台 · 手动生成")}</p>${(c.asset_ids || v.deps.filter(d=>entity(d.id)?.kind==="asset").map(d=>d.id)).map(id=>{const a=entity(id),av=version(a,v.deps.find(d=>d.id===id)?.revision),ac=av?.content || {};return `<div><p>${esc(a?.title || id)}${ac.form_description?" · "+esc(ac.form_description):""}</p>${(ac.production_reference?.media_ids || []).map(beautyMedia).filter(Boolean).map(m=>mediaCard(m,true)).join("")}${ac.production_reference?.media_ids?.length?`<small>单人参考：${esc(ac.production_reference.notes)}</small>`:"<small>可在资产里另选单视角参考，三视图用于设定对照。</small>"}</div>`;}).join("")}${btn("人物 / 场景资产","flow-assets")}</aside></div>`;
 }
 function inboxView(){
   const shots=productionShots(),ready=shots.filter(accepted),used=new Set(entities("attempt").flatMap(e=>version(e).content.result_media || []));
@@ -148,6 +152,7 @@ function beautyFlowView(){
       ${field("作品名称","title",d.title)}${area("主题想法","idea",d.idea,"例如：咖啡店窗边，白色毛衣，自然回眸。",4)}
       ${area("简易剧本（场景与动作）","action",d.action,"例如：人物坐在窗边读信，听见门响后抬眼，最后看向镜头。后续图片词和视频词都会引用。",5)}
       ${area("台词 / 旁白（可选）","dialogue",d.dialogue,"例如：今天，也许会有好消息。日常和穿搭内容可直接在这里修改。",3)}
+      ${area("静帧瞬间（可选）","frame_description",d.frame_description || "","例如：坐在窗边，双手拿信尚未打开。基础组合使用这一刻；AI 优化可从剧本中选择。",3)}
       <div class="form-grid">${field("生成平台 / 模型","platform",d.platform)}${select("画幅","format",[["9:16","9:16"],["16:9","16:9"],["1:1","1:1"]],d.format)}
       ${field("时长 / 秒","duration",d.duration,"number","","min=1 max=600")}</div></form>`;
   }else if(P.step===2){
@@ -210,7 +215,7 @@ async function flowStep(step, bypass=false){
   S.dirty=false;S.stageDraft=null;S.preview=null;B.draft=null;P.promptDraft=null;P.voiceDraft=null;P.step=step;P.index=0;
   S.page=S.space==="drama"?"pipeline":"beauty-create";
   if(S.space==="beauty"){P.shot=B.id;P.medium="video";}
-  if(S.space==="drama"&&step===3)await bindSelectedImages();
+  if(S.space==="drama"&&step===4)await bindSelectedImages();
   render();window.scrollTo({top:0});
 }
 async function bindSelectedImages(){
@@ -320,12 +325,12 @@ Object.assign(actions,{
   "flow-step":id=>flowStep(Number(id)),
   "flow-next":()=>flowStep(P.step+1),
   "script-source":id=>editor("source","",{source_type:id,title:{novel:"小说素材",comic:"漫画素材",joke:"段子素材"}[id] || "外部素材"}),
-  "shot-refresh":async id=>{P.focus=id;P.shot=id;await flowStep(2,true);$$(".stage-workspace").forEach(el=>{const outer=el.closest("details");if(outer)outer.open=true;const inner=$("details",el);if(inner)inner.open=true;});$("#context-form")?.scrollIntoView();},
+  "shot-refresh":async id=>{P.focus=id;P.shot=id;await flowStep(3,true);$$(".stage-workspace").forEach(el=>{const outer=el.closest("details");if(outer)outer.open=true;const inner=$("details",el);if(inner)inner.open=true;});$("#context-form")?.scrollIntoView();},
   "flow-fix":async id=>{const [step,shot]=id.split("|");closeModal(true);P.shot=shot;P.focus=shot;await flowStep(Number(step),true);},
   "flow-accept":async id=>{if(S.dirty)throw new Error("先保存当前编辑，再设置当前版本");await acceptRecord(entity(id));},
   "flow-shot":id=>{if(!canLeave())return;S.dirty=false;P.promptDraft=null;P.voiceDraft=null;P.shot=id;P.focus=id;P.index=0;render();},
   "flow-assets":()=>modal("本项目人物与场景",assetsView(),btn("关闭","close")),
-  "open-entity":id=>{const e=entity(id);if(e.kind==="stage"){const step={M00:0,M01:1,M02:2,M03:3}[e.id.split("-")[1]];step===undefined?navigate("stages",e.id.split("-")[1]):flowStep(step,true);}else if(e.kind==="shot"&&S.space==="beauty")beautyOpen(id);else editor(e.kind,id);},
+  "open-entity":id=>{const e=entity(id);if(e.kind==="stage"){const step={M00:0,M01:1,M02:3,M03:4}[e.id.split("-")[1]];step===undefined?navigate("stages",e.id.split("-")[1]):flowStep(step,true);}else if(e.kind==="shot"&&S.space==="beauty")beautyOpen(id);else editor(e.kind,id);},
   "prompt-save":()=>savePrompt(false),
   "prompt-current":()=>savePrompt(true),
   "prompt-copy":()=>{const e=activeShot();if(S.dirty||e.head!==e.accepted)throw new Error("先保存并设为当前版本");return copy(accepted(e).content[P.medium+"_prompt"] || "");},
@@ -367,11 +372,6 @@ Object.assign(actions,{
     await projectAPI("save",{id:old?.id || "voice-"+shot.id,kind:"voice",title:shot.title+" · 配音",episode:shot.episode,base_revision:old?.head || 0,
       content:{shot_ref:ref(shot),no_voice:f.has("no_voice"),media_ids:f.getAll("voice_media"),lines:JSON.parse(f.get("lines") || "[]"),speaker:f.get("speaker"),voice:f.get("voice"),rate:f.get("rate"),emotion:f.get("emotion")},
       deps:[ref(shot)],set_current:true,expected_accepted:old?.accepted ?? null});S.dirty=false;P.voiceDraft=null;await refresh();toast("配音已保存为当前版本");
-  },
-  "import-structured":async()=>{
-    if(S.dirty)throw new Error("先保存并设为当前阶段版本");
-    const e=stageEntity();if(!e)throw new Error("请先保存阶段");
-    const result=await projectAPI("sync-stage",{id:e.id,revision:e.head});await refresh();toast(`已同步 ${result.count} 个镜头 / 资产，真实素材绑定已保留`);
   },
   "handoff":()=>flowStep(flowLabels().length-1,true),
   "delivery-download":async()=>{

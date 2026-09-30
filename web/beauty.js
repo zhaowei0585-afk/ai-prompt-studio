@@ -100,7 +100,8 @@ function defaultCharacterPrompt(d,c={},picked={}) {
     data.outfit_notes&&`穿搭要求：${data.outfit_notes}`,
     (d.character_reference_media_ids || c.reference_media_ids || []).length&&"人物参考图已提供，身份和脸部以参考图为准。",
     (d.outfit_media_ids || c.outfit_media_ids || []).length&&"穿搭参考图已提供，服装版型、材质和配色以参考图为准。",
-    "避免夸张透视和遮挡；三视图用于后续本地 ComfyUI 角色一致性。"
+    `均匀柔光照清脸部结构和服装材质，避免夸张透视和遮挡；画风：${S.project.project.style || "自然写实人物"}。`,
+    "三视图用于设定对照。后续单张剧情图不沿用多视角排版、文字标签和重复人物。"
   ].filter(Boolean).join("\n");
 }
 function preserveCharacterPrompt(text, baseline) {
@@ -163,6 +164,7 @@ function beautyCreateView() {
         <div class="media-grid">${refs.map(beautyMedia).filter(Boolean).slice(0,1).map(m=>mediaCard(m,true)).join("")}</div>
         ${select("这次做什么","mode",Object.entries(beautyModes),d.mode)}
         ${area("一句话想法","idea",d.idea,"例如：咖啡店窗边，白色毛衣，自然回眸。",3)}
+        ${area("静帧瞬间（可选）","frame_description",d.frame_description || "","基础组合时填写单一静态时刻；AI 优化可从剧本中选择。",3)}
         ${field("生成平台 / 模型","platform",d.platform,"text","填写你实际使用的平台；默认输出通用中文提示词")}
         <div class="form-grid">${select("画幅","format",[["9:16","9:16"],["16:9","16:9"],["1:1","1:1"],["3:4","3:4"]],d.format)}
         ${field("视频时长 / 秒（可选）","duration",d.duration,"number","","min=1 max=600 step=1")}</div>
@@ -240,7 +242,7 @@ async function beautySaveVersion(setCurrent = false, draft = null) {
   if(B.repair)deps.push({id:B.repair.id,revision:B.repair.head,frozen:true});
   deps.push(...B.extraDeps);
   const content={...old?.content,workflow:"beauty",mode:d.mode,idea:d.idea,platform:d.platform,format:d.format,
-    action:d.action || "",dialogue:d.dialogue || "",
+    action:d.action || "",dialogue:d.dialogue || "",frame_description:d.frame_description || "",
     duration:d.duration,character_id:characterId || "",input_media:d.input_media,reference_notes:d.reference_notes,repair_note:d.repair_note || "",
     generation_route:d.generation_route || "prompt",reference_support:d.reference_support || "unknown",
     image_prompt:d.image_prompt,video_prompt:d.video_prompt,bindings:d.bindings || {}};
@@ -304,8 +306,15 @@ function beautyBasic() {
   const [id,rev]=(d.character || "").split("|"), char=version(entity(id),Number(rev))?.content;
   const character=char?`以提供的人物参考图为身份依据，保持面部特征、发型与体型。${char.description || ""}`:"一位成年原创虚拟女性，面部特征自然。";
   const mode={daily:"生活抓拍感，姿态放松，动作开始前的静态时刻。",outfit:"清楚展示服装版型、领口、袖长与配饰，服装细节以提供的参考为准。",dance:"单人全身构图，双手与双脚完整入画，预留动作空间，背景简洁。"}[d.mode];
-  d.image_prompt=[character,d.idea,d.action&&`简易剧本：${d.action}`,d.dialogue&&`台词 / 旁白：${d.dialogue}`,
-    mode,d.reference_notes,`${d.format} 构图，自然光，真实皮肤与衣物材质，主体清晰。`].filter(Boolean).join("\n");
+  if(d.action.trim()&&!d.frame_description?.trim())throw new Error("基础组合请先填写“静帧瞬间”；也可用 AI 优化从剧本中选择，避免整段剧情被画进一张图。");
+  d.image_prompt=[character,bodyTypeText(char || {})&&`身材约束：${bodyTypeText(char)}`,
+    char?.body_notes&&`身材补充：${char.body_notes}`,char?.face_notes&&`面部要求：${char.face_notes}`,
+    `单张静态画面：${d.frame_description || d.idea}`,mode,
+    `${d.format} 构图，保持脸与身材比例。`,
+    char?.outfit_strategy==="merge"?"人物参考只保留身份、脸和身材，服装版型、配色、材质与配饰完全以穿搭参考图为准，不混合两套穿搭。":"沿用当前角色参考的可见服装版型、配色、材质和配饰。",
+    char?.outfit_notes&&`穿搭微调：${char.outfit_notes}`,
+    `画风：${S.project.project.style || "自然写实人物"}。场景已有光源决定受光方向，保持主体轮廓清楚与空间层次。`,
+    "只画动作开始前的这一刻，不画动作完成结果，不使用三视图拼板、重复人物、字幕或对白文字。"].filter(Boolean).join("\n");
   beautyClearVideo();S.dirty=true;render();toast("已组合基础图片词，尚未调用 AI");
 }
 async function beautyCompose(target) {
@@ -339,7 +348,7 @@ async function beautyCompose(target) {
   const built=await projectAPI("compose",input);
   B.pending={...pending,built};
   const names=built.media_ids.map(id=>beautyMedia(id)?.name).join("、");
-  modal("提示词生成预览",`<div class="notice">发送 ${built.characters} 字符、${built.media_ids.length} 张图片${names?"："+esc(names):"；未发送图片时仅依据文字描述"}。不会调用生图 API。复制到外部对话平台时，相关参考图片需手工上传。</div>
+  modal("提示词生成预览",`<div class="notice">发送 ${built.characters} 字符、${built.media_ids.length} 张图片${names?"："+esc(names):"；未发送图片时仅依据文字描述"}。输出上限 ${built.max_tokens} tokens。不会调用生图 API。复制到外部对话平台时，相关参考图片需手工上传。</div>${templateNotice(built)}
     ${area("完整指令","beauty-instruction",built.prompt,"",9)}
     <details><summary>无 API：粘贴外部对话平台的结果</summary>${area("外部结果","beauty-external","","可粘贴返回的 JSON，也可只粘贴对应的提示词正文。",6)}${btn("载入外部结果","beauty-load-external")}</details>`,
     btn("复制完整指令","beauty-copy-instruction")+btn("发送给文本 / 视觉模型","beauty-generate","","primary"));
@@ -458,9 +467,10 @@ Object.assign(actions,{
   "beauty-generate":beautyGenerate,
   "beauty-copy-instruction":()=>copy($('[name="beauty-instruction"]').value),
   "beauty-load-external":()=>{
-    let raw=$('[name="beauty-external"]').value.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
+    let raw=$('[name="beauty-external"]').value.trim();
+    const json=firstJsonObject(raw);
     const key=B.pending.target==="video"?"video_prompt":"image_prompt";
-    beautyLoadResult(raw.startsWith("{")?JSON.parse(raw):{[key]:raw});
+    beautyLoadResult(json?JSON.parse(json):{[key]:raw.replace(/^```(?:json)?\s*|\s*```$/g,"")});
   },
   "beauty-copy":async medium=>{
     beautyRead();

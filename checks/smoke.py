@@ -9,6 +9,7 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 import zipfile
 
@@ -18,6 +19,7 @@ from studio import Handler, Studio, dump
 
 class Model(BaseHTTPRequestHandler):
     invalid = False
+    suffix = ""
     last = None
 
     def do_POST(self):
@@ -31,7 +33,7 @@ class Model(BaseHTTPRequestHandler):
             result = {"text":"按本次提供的描述创作。","image_prompt":"" if video else "保持人物身份，白色圆领毛衣，咖啡店窗边自然光。",
                       "video_prompt":"人物轻轻抬眼，微笑后自然停顿，固定镜头。" if video else ""}
         content = "```json\n" + dump(result) + "\n```"
-        payload = {"choices":[{"message":{"content":content if not Model.invalid else "incomplete {"},
+        payload = {"choices":[{"message":{"content":(content + Model.suffix) if not Model.invalid else "incomplete {"},
                                "finish_reason":"stop" if not Model.invalid else "length"}]}
         body = dump(payload).encode()
         self.send_response(200)
@@ -43,13 +45,48 @@ class Model(BaseHTTPRequestHandler):
         pass
 
 
+class Comfy(BaseHTTPRequestHandler):
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=")
+    last = None
+
+    def do_POST(self):
+        assert self.path == "/prompt"
+        Comfy.last = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        body = dump({"prompt_id":"prompt-1"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/history/prompt-1":
+            body = dump({"prompt-1":{"outputs":{"9":{"images":[{"filename":"three-view.png","subfolder":"","type":"output"}]}}}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        assert urlparse(self.path).path == "/view"
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(Comfy.png)))
+        self.end_headers()
+        self.wfile.write(Comfy.png)
+
+    def log_message(self, *args):
+        pass
+
+
 def main():
     with tempfile.TemporaryDirectory() as temp:
         app = Studio(Path(temp)/"data", Path(temp)/"private/settings.json")
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.app = app
         model = ThreadingHTTPServer(("127.0.0.1", 0), Model)
-        for service in (server, model):
+        comfy = ThreadingHTTPServer(("127.0.0.1", 0), Comfy)
+        for service in (server, model, comfy):
             threading.Thread(target=service.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{server.server_port}"
 
@@ -97,6 +134,23 @@ def main():
             script = request(path+"/compose", {"stage":"M00","episode":"EP001","scope":"完整段子",
                 "source_ids":[joke["id"]],"context_ids":[],"media_ids":[]})
             assert '"source_type": "joke"' in script["prompt"] and "铺垫、误导、反转和包袱" in script["prompt"]
+            assert "# 本集标题" in script["prompt"] and "## 人物" in script["prompt"]
+            assert "P 段号只用于保证顺序，不要输出到正文里" in script["prompt"]
+            novel = request(path+"/save", {"id":"SRC-RANGE","kind":"source","title":"范围小说",
+                "content":{"source_type":"novel","text":"范围外前文。\n雨夜里，她收到一封没有署名的信。\n她决定赴约。\n她把信藏进抽屉。\n范围外后文。",
+                           "locator":"从“雨夜里，她收到一封没有署名的信”到“她把信藏进抽屉”",
+                           "rights":"","reviewed":True,"media_ids":[]},"set_current":True,"expected_accepted":None})
+            bounded = request(path+"/compose", {"stage":"M00","episode":"EP001","scope":"",
+                "source_ids":[novel["id"]],"context_ids":[],"media_ids":[]})
+            assert "她决定赴约" in bounded["prompt"] and "范围外前文" not in bounded["prompt"] and "范围外后文" not in bounded["prompt"]
+            assert "[P001] 雨夜里，她收到一封没有署名的信。" in bounded["prompt"]
+            assert "[P002] 她决定赴约。" in bounded["prompt"]
+            assert "[P003] 她把信藏进抽屉" in bounded["prompt"]
+            loose = request(path+"/save", {"id":"SRC-LOOSE","kind":"source","title":"未标范围小说",
+                "content":{"source_type":"novel","text":"只有这一句正文。","locator":"",
+                           "rights":"","reviewed":True,"media_ids":[]},"set_current":True,"expected_accepted":None})
+            request(path+"/compose", {"stage":"M00","episode":"EP001","scope":"从“找不到开头”到“找不到结尾”",
+                "source_ids":[loose["id"]],"context_ids":[],"media_ids":[]}, expected=400)
             stage = next(e for e in state["entities"] if e["id"]=="stage-D01-EP001")
             revised_stage = request(path+"/save", {"id":stage["id"],"kind":"stage","title":stage["title"],
                 "episode":"EP001","base_revision":1,"content":stage["versions"][0]["content"],
@@ -162,11 +216,22 @@ def main():
                 assert json.loads(z.read("manifest.json"))["shots"][-1]["selected"]["id"] == success["id"]
             print("PASS selected-take provenance, rejected-take exclusion and CSV safety")
 
+            workflow = {"6":{"class_type":"CLIPTextEncode","inputs":{"text":"old prompt"}},
+                        "9":{"class_type":"SaveImage","inputs":{}}}
             settings = {"base_url":f"http://127.0.0.1:{model.server_port}/v1","model":"mock-text",
-                        "vision_model":"mock-vision","api_key":"test-secret-not-for-export"}
+                        "vision_model":"mock-vision","api_key":"test-secret-not-for-export",
+                        "comfyui_url":f"http://127.0.0.1:{comfy.server_port}",
+                        "comfyui_prompt_node":"6","comfyui_workflow":dump(workflow)}
             request("/api/settings", settings)
             public = request("/api/bootstrap")["settings"]
-            assert public["has_key"] and "api_key" not in public
+            assert public["has_key"] and "api_key" not in public and public["comfyui_url"].startswith("http://127.0.0.1")
+            role = request(path+"/save", {"kind":"asset","title":"三视图角色","content":{"type":"角色","description":"黑发女主",
+                "image_prompt":"角色三视图提示词","media_ids":[]},"set_current":True,"expected_accepted":None})
+            generated = request(path+"/comfyui-image", {"prompt_ref":{"id":role["id"],"revision":1}})
+            assert generated["count"] == 1
+            assert Comfy.last["prompt"]["6"]["inputs"]["text"] == "角色三视图提示词"
+            candidate = next(e for e in request(path)["entities"] if e["kind"]=="attempt" and e["versions"][0]["content"]["prompt_ref"]["id"] == role["id"])
+            assert candidate["versions"][0]["content"]["platform"] == "ComfyUI"
             input_data = {"stage":"D05","episode":"EP001","scope":"P1–P3","source_ids":["SRC-001"],
                           "context_ids":["stage-D03-EP001"],"media_ids":[],"extra":"只生成三镜"}
             preview = request(path+"/compose", input_data)
@@ -174,6 +239,10 @@ def main():
             request(path+"/generate", {"input":input_data,"preview_hash":"stale"}, expected=409)
             result = request(path+"/generate", {"input":input_data,"preview_hash":preview["hash"]})
             assert not result["error"] and result["run"]["meta"]["input_hash"] == preview["hash"]
+            Model.suffix = "\n已生成，可复制使用。"
+            result = request(path+"/generate", {"input":input_data,"preview_hash":preview["hash"]})
+            assert not result["error"] and result["result"]["text"] == "模型草稿，仅覆盖所选来源。"
+            Model.suffix = ""
             Model.invalid = True
             result = request(path+"/generate", {"input":input_data,"preview_hash":preview["hash"]})
             assert result["error"] and result["run"]["content"]["text"] == "incomplete {"
@@ -183,7 +252,7 @@ def main():
             preview = request(path+"/compose", image_input)
             result = request(path+"/generate", {"input":image_input,"preview_hash":preview["hash"]})
             assert not result["error"] and Model.last["model"] == "mock-vision"
-            assert Model.last["max_tokens"] == 4096
+            assert Model.last["max_tokens"] == 8192
             assert Model.last["response_format"] == {"type":"json_object"}
             assert Model.last["messages"][1]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
             print("PASS exact AI input preview, mock text/vision and retained truncated output")

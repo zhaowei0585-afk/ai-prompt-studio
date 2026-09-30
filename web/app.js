@@ -2,7 +2,7 @@
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const S = {boot:null, project:null, space:localStorage.getItem("studio.space")==="beauty"?"beauty":"drama", page:"overview", stage:"M00", episode:localStorage.getItem("studio.episode") || "EP001", dirty:false, modalDirty:false, preview:null, stageDraft:null};
+const S = {boot:null, project:null, space:localStorage.getItem("studio.space")==="beauty"?"beauty":"drama", page:"overview", stage:"M00", episode:localStorage.getItem("studio.episode") || "EP001", dirty:false, modalDirty:false, preview:null, stageDraft:null, assetCandidate:""};
 const dramaTitles = {overview:"行动中心",pipeline:"生产流程",sources:"来源素材",stages:"阶段编辑",assets:"角色与资产",shots:"镜头详情",attempts:"结果档案",recipes:"配方与发布",profiles:"工作流档案",templates:"提示词模板"};
 const tracks = {drama:"AI 漫剧",daily:"人物 · 日常",outfit:"人物 · 穿搭",dance:"人物 · 舞蹈"};
 const projectSpace = p => p.track === "drama" ? "drama" : "beauty";
@@ -23,9 +23,36 @@ const field = (label, name, value = "", type = "text", help = "", attrs = "") =>
 const area = (label, name, value = "", help = "", rows = 4) => `<label class="field">${esc(label)}<textarea name="${esc(name)}" rows="${rows}">${esc(value)}</textarea>${help ? `<small>${esc(help)}</small>` : ""}</label>`;
 const select = (label, name, options, value = "") => `<label class="field">${esc(label)}<select name="${esc(name)}">${options.map(([id, title]) => `<option value="${esc(id)}" ${String(value) === String(id) ? "selected" : ""}>${esc(title)}</option>`).join("")}</select></label>`;
 const check = (label, name, value, checked = false) => `<label class="check"><input type="checkbox" name="${esc(name)}" value="${esc(value)}" ${checked ? "checked" : ""}><span>${esc(label)}</span></label>`;
+const rangeText = (start, end) => {
+  start=String(start || "").trim();end=String(end || "").trim();
+  return start&&end ? `从“${start}”到“${end}”` : start || end;
+};
+const rangeParts = value => {
+  const text=String(value || "").trim(), m=text.match(/^从[“"]?(.+?)[”"]?到[“"]?(.+?)[”"]?$/);
+  return m ? [m[1],m[2]] : [text,""];
+};
+function rangeFields(name, value) {
+  const [start,end]=rangeParts(value);
+  return `<div class="form-grid">${field("起始文字",name+"_start",start,"text","从这句/这段开始")}${field("结束文字",name+"_end",end,"text","到这句/这段结束")}</div>`;
+}
+const rangeFormValue = (f, name) => rangeText(f.get(name+"_start"), f.get(name+"_end"));
+const stageOutputText = draft => S.stage==="M00" ? (draft.text || draft.structured?.text || "") : (draft.structured ? JSON.stringify(draft.structured,null,2) : draft.text || "");
 const empty = (title, text, actions = "") => `<div class="empty"><h2>${esc(title)}</h2><p>${esc(text)}</p><div class="row">${actions}</div></div>`;
 const section = (title, text, actions = "") => `<div class="section-head"><div><h2>${esc(title)}</h2><p>${esc(text)}</p></div><div class="row">${actions}</div></div>`;
 const brief = text => String(text || "").slice(0, 180);
+const assetIsRole = c => (c?.type || "角色") === "角色";
+const assetThreeViewReady = c => assetIsRole(c) && !!c.image_prompt?.trim() && !!c.media_ids?.length && !!c.three_view_confirmed;
+function dramaThreeViewPrompt(title, description) {
+  return [
+    `生成一位同一身份的漫剧角色「${title || "角色"}」。`,
+    description || "五官清晰，发型、体型、服装和饰品明确，适合后续多镜头保持角色一致。",
+    "画面左侧为人物半身近景，右侧为同一人物正面、侧面、背面三视图。",
+    "五官、发型、身材比例、服装、饰品和配色必须完全一致。",
+    "写清可见的脸型与五官比例、发型轮廓、体态，服装的层次、版型、颜色和材质；非人角色按其头部、躯干、肢节与附肢结构呈现。",
+    `纯净浅色背景，均匀柔光照清结构，无遮挡、无夸张透视。画风：${S.project.project.style || "沿用项目确认的画风，不擅自改成写实"}。`,
+    "这是身份设定板。后续剧情首帧为单张画面，应另选清晰单视角作人物参考，不能复制本图的拼板排版。"
+  ].join("\n");
+}
 
 async function api(path, data, options = {}) {
   const opts = {...options};
@@ -125,7 +152,7 @@ function render() {
 }
 function welcome() {
   if(S.space==="beauty")return `<div class="hero welcome"><span class="hero-tag">AI 美女 / 先定角色，再做视频</span><h2>确认三视图，<br>再进入主题创作。</h2><p>角色三视图 → 选择主题 → 生成视频 → 导出。<br>提示词在这里整理，媒体到常用 AI 平台或本地 ComfyUI 生成，再回来筛选。</p><div class="row">${btn("创建美女项目 →","new-project","","primary")}${btn("恢复工程","restore")}</div></div>`;
-  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集六步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>候选导入、候选筛选，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
+  return `<div class="hero welcome"><span class="hero-tag">AI 漫剧 / 一集七步</span><h2>把故事变成<br>可交付的漫剧片段。</h2><p>编写剧本 → 剧本分镜 → 角色一致性 → 文字生图 → 图生视频 → 人声配音 → 导出。<br>候选导入、候选筛选，保留每次实际输入和当前结果。</p><div class="row">${btn("创建第一个项目 →","new-project","","primary")}${btn("打开原创示例","demo")}${btn("恢复另一台电脑的工程","restore")}</div></div>`;
 }
 function stageCodes() {
   if(S.project.project.track === "drama"){
@@ -142,18 +169,18 @@ function stateBadge(e) {
     e.accepted === e.head ? badge(`当前版本 v${e.accepted}`, "ok") : badge(e.accepted ? `草稿 v${e.head} · 当前仍为 v${e.accepted}` : "草稿 · 尚无当前版本","warn");
 }
 function dramaOverview(p, shots, attempts, chosen, stats) {
-  const assets=entities("asset"), selectedAssets=assets.filter(e=>version(e).content.media_ids?.length).length;
+  const assets=entities("asset"), roles=assets.filter(e=>assetIsRole(version(e).content)), confirmedRoles=roles.filter(e=>assetThreeViewReady(version(e).content)).length;
   const imageReady=shots.filter(e=>version(e).content.image_prompt?.trim()).length;
   const phases=[
     ["01","剧本分镜","约 30 分钟","选题、剧本和 JSON 镜头一次成型","stage","M01",entity(`stage-M01-${S.episode}`)?"已有版本":"开始"],
-    ["02","角色一致性","选定参考图",`统一人物与造型 · ${selectedAssets}/${assets.length} 已选图`,"goto-page","assets",assets.length?"继续":"待建立"],
-    ["03","批量出图","约 20–30 分钟",`标准化图片词、ControlNet 姿态和人工选图 · ${imageReady}/${shots.length} 有图片词`,"stage","M02",shots.length?"继续":"待分镜"],
-    ["04","图生视频","约 30–60 分钟",`选定分镜图转动态片段 · ${attempts.length} 次试片`,"stage","M03",attempts.length?"继续":"待出图"],
-    ["05","成片复盘","剪辑后",`导出素材、发布并沉淀配方 · ${chosen.length} 镜已有当前结果`,"goto-page","recipes",chosen.length?"复盘":"待选片"]
+    ["02","角色一致性","先定三视图",`角色三视图 · ${confirmedRoles}/${roles.length} 已确认`,"flow-step","2",roles.length&&confirmedRoles===roles.length?"继续":"待确认"],
+    ["03","批量出图","约 20–30 分钟",`标准化图片词、ControlNet 姿态和人工选图 · ${imageReady}/${shots.length} 有图片词`,"flow-step","3",shots.length?"继续":"待分镜"],
+    ["04","图生视频","约 30–60 分钟",`选定分镜图转动态片段 · ${attempts.length} 次试片`,"flow-step","4",attempts.length?"继续":"待出图"],
+    ["05","成片交付","剪辑后",`导出素材、发布并沉淀配方 · ${chosen.length} 镜已有当前结果`,"flow-step","6",chosen.length?"复盘":"待选片"]
   ];
   return `<div class="hero drama-hero"><span class="hero-tag">AI 漫剧生产线 / ${esc(p.format)}</span><h2>${esc(p.name)}</h2><p>故事转分镜，统一人物后生成图片与视频提示词。复制到公开 AI 平台生产，再回填、选片和剪辑。</p><div class="row">${btn("开始剧本分镜 →","stage","M01","primary")}${btn("导入小说 / 漫画","goto-sources")}${btn("导出生产包","handoff")}</div></div>
     <div class="stats">${stats.map(([label,n,desc]) => `<div class="stat"><span>${label}</span><strong>${n}</strong><small>${desc}</small></div>`).join("")}</div>
-    ${section("本集五步生产线","每一步只产出下一步真正需要的内容；剪辑继续在你的外部工具完成。")}
+    ${section("本集七步生产线","每一步只产出下一步真正需要的内容；剪辑继续在你的外部工具完成。")}
     <div class="pipeline">${phases.map(([n,title,time,desc,action,id,status])=>`<article class="phase"><div class="phase-top"><span>${n}</span><small>${time}</small></div><h3>${title}</h3><p>${desc}</p><footer>${badge(status,status==="开始"||status==="继续"?"ok":"")}${btn("进入 →",action,id)}</footer></article>`).join("")}</div>
     <div class="notice"><b>每次去平台生成时：</b>复制对应镜头的提示词，并上传已选角色参考图。满意的分镜图回填为视频起始图；仅写外貌文字不能保证人物一致。</div>`;
 }
@@ -181,7 +208,7 @@ function sourcesView() {
   const sources = entities("source");
   const drama=S.project.project.track==="drama";
   return section(drama?"素材与选题":"来源与覆盖范围",drama?"导入小说或漫画，标明本次改编范围；题材、受众和节奏写入项目方向。":"小说按章分段；漫画按页登记；视频用时间码和关键帧校对。",btn("导入 TXT / Markdown","import-text")+btn("＋ 新增来源","edit-source","","primary")) +
-    `<div class="grid">${sources.map(e => `<div class="card"><div class="row between"><h3>${esc(e.title)}</h3>${stateBadge(e)}</div><p>${esc(version(e).content.locator || "尚未标注章节 / 页格 / 时间码")}</p><p class="excerpt">${esc(brief(version(e).content.text))}</p><footer><small>${version(e).content.media_ids?.length || 0} 个素材 · v${e.head}</small><div class="row">${btn("校对 / 编辑","edit-source",e.id)}${iconBtn("delete-source",e.id,"删除来源素材")}</div></footer></div>`).join("")}</div>${!sources.length ? empty("保留故事的来处","把本次需要的章节粘贴进来，并注明范围。未选择的内容不会发送给模型。") : ""}
+    `<div class="grid">${sources.map(e => `<div class="card"><div class="row between"><h3>${esc(e.title)}</h3>${stateBadge(e)}</div><p>${esc(version(e).content.locator || "尚未标注原文起止范围")}</p><p class="excerpt">${esc(brief(version(e).content.text))}</p><footer><small>${version(e).content.media_ids?.length || 0} 个素材 · v${e.head}</small><div class="row">${btn("校对 / 编辑","edit-source",e.id)}${iconBtn("delete-source",e.id,"删除来源素材")}</div></footer></div>`).join("")}</div>${!sources.length ? empty("保留故事的来处","把本次需要的原文粘贴进来，并注明起止范围。未选择的内容不会发送给模型。") : ""}
     ${section(drama?"参考图与生成结果":"素材库","只保存在本机。图片只有在生成预览中明确勾选，才会发送给视觉模型。")}
     <div class="upload-zone"><div><b>导入参考图、参考视频或平台生成结果</b><small>图片 / 视频 / 音频，单文件最大 256 MB。视频可手工抽取当前帧。</small></div>${btn("选择文件","upload")}</div>
     <div class="media-grid">${S.project.media.map(m=>mediaCard(m)).join("")}</div>`;
@@ -219,15 +246,15 @@ function stagesView() {
   const contextBlock=S.stage==="M00"?"":`<label class="field">关联设定与上游版本</label>${contextChecks(null,"context_ids",inputs?.context_ids || defaults)}`;
   return `<div class="stage-workspace">
     <details class="card" ${S.stage==="M00"?"open":""}><summary>${S.stage==="M00"?"用来源素材生成剧本":"AI 辅助 · 来源、参考素材与生成前预览"}</summary><form id="context-form">
-    ${field("章节 / 页格 / 时间范围","scope",inputs?.scope || "")}<label class="field">${S.stage==="M00"?"本次改编来源":"来源范围"}（需先设为当前版本）</label>${contextChecks("source","source_ids",sourceDefaults)}
+    <label class="field">原文范围（从哪段文字到哪段文字）</label>${rangeFields("scope",inputs?.scope || "")}<small>漫画或视频仍可在任一格填写页格 / 时间码。</small><label class="field">${S.stage==="M00"?"本次改编来源":"来源范围"}（需先设为当前版本）</label>${contextChecks("source","source_ids",sourceDefaults)}
     ${contextBlock}
     <label class="field">${S.stage==="M00"?"用于理解漫画的页面图片":"发送给视觉模型的图片"}（最多 8 张）</label>${mediaChecks("media_ids",mediaDefaults,"image/")}
     ${S.stage==="M00"&&!S.boot.settings.vision_model&&sourceMedia.length?'<div class="notice warn">漫画页不会自动发送：请先配置视觉模型，或在来源中填写人工校对的画面与对白。</div>':""}
-    ${area("本次目标与补充要求","extra",inputs?.extra || "", S.stage==="M00"?"例如：60 秒竖屏漫剧，前三秒出现冲突，保留原段子的包袱。":"例如：本集 60 秒、前三秒出现冲突、只做 12 个镜头。",3)}
+    ${area("本次目标与补充要求","extra",inputs?.extra || "", "例如：完整覆盖所选范围，保持原文顺序；时长不足时建议拆镜或拆集。",3)}
     ${btn(S.stage==="M00"?"生成剧本预览":"生成前预览","compose","","primary")}</form></details>
     <div class="card"><div class="row between"><div><span class="eyebrow">${S.stage} / ${esc(S.episode)}</span><h2>${info[1]}</h2></div>${e ? stateBadge(e) : badge("尚未保存")}</div>
     <p class="muted">${S.stage==="M00"?"AI 生成后仍可逐字修改；原文与剧本分开保存，便于核对改编。":"直接编写或粘贴外部 AI 的结果。"} 保存草稿保留编辑；设为当前版本后，下一步才会引用。</p>
-    <label class="field">${S.stage==="M00"?"本集剧本":"阶段结果"} <span class="dirty" id="stage-dirty"></span><textarea id="stage-output" class="editor" spellcheck="false">${esc(draft.structured ? JSON.stringify(draft.structured,null,2) : draft.text || "")}</textarea></label>
+    <label class="field">${S.stage==="M00"?"本集剧本":"阶段结果"} <span class="dirty" id="stage-dirty"></span><textarea id="stage-output" class="editor" spellcheck="false">${esc(stageOutputText(draft))}</textarea></label>
     <div class="row">${btn("保存草稿","save-stage")}${btn("保存并设为当前版本","save-accept-stage","","primary")}${e&&e.head!==e.accepted?btn("设为当前版本","accept-stage"):""}${S.stage==="M01"?btn("同步镜头与资产","import-structured"):["M02","M03"].includes(S.stage)?btn("应用到镜头","import-structured"):""}</div>
     ${e ? history(e,"stage-history") : ""}${runList()}</div></div>`;
 }
@@ -240,10 +267,20 @@ function runList() {
 }
 function assetsView() {
   const drama=S.project.project.track==="drama";
-  return section(drama?"角色一致性":"角色与资产",drama?"在常用 AI 平台生成角色图，回填并选定参考，再用于每个分镜。":"身份、造型、场景、道具分别留档；选定真实图片后供镜头引用。",
+  return section(drama?"角色一致性":"角色与资产",drama?"先为角色生成并确认正面、侧面、背面三视图；文字生图会被这一层卡住。":"身份、造型、场景、道具分别留档；选定真实图片后供镜头引用。",
     (drama?btn("从剧本生成资产","stage","M01"):"")+btn("＋ 新建资产","edit-asset","","primary"))+
-    `<div class="grid">${entities("asset").map(e => {const c=version(e).content;const consistency=[c.lora_trigger&&`LoRA: ${c.lora_trigger}${c.lora_weight?` @ ${c.lora_weight}`:""}`,c.ip_adapter_notes&&"IP-Adapter 已记录"].filter(Boolean);return `<div class="card"><div class="number">${esc(c.type || "资产")} / ${esc(e.id)}</div><h3>${esc(e.title)}</h3><p class="excerpt">${esc(c.description)}</p><div class="row">${stateBadge(e)}${badge(c.media_ids?.length ? `已选 ${c.media_ids.length} 张参考` : "待提供参考图",c.media_ids?.length ? "ok":"warn")}${consistency.map(x=>badge(x,"ok")).join("")}</div><footer><small>${esc(c.naming_rule || `v${e.head}`)}</small>${btn("编辑 / 选图","edit-asset",e.id)}</footer></div>`;}).join("")}</div>`+
-    (!entities("asset").length ? empty(drama?"先锁主角，不必一次做全剧":"建立第一位角色",drama?"在剧本分镜中同步角色草案，再为主角选择一张清楚参考图。":"也可以在拆解与选角阶段生成资产，再导入成卡片。") : "");
+    `<div class="grid">${entities("asset").map(e => {const c=version(e).content,role=drama&&assetIsRole(c);const consistency=[role&&(assetThreeViewReady(c)?"三视图已确认":"待三视图"),c.lora_trigger&&`LoRA: ${c.lora_trigger}${c.lora_weight?` @ ${c.lora_weight}`:""}`,c.ip_adapter_notes&&"IP-Adapter 已记录"].filter(Boolean);return `<div class="card"><div class="number">${esc(c.type || "资产")} / ${esc(e.id)}</div><h3>${esc(e.title)}</h3><p class="excerpt">${esc(c.description)}</p><div class="row">${stateBadge(e)}${badge(c.media_ids?.length ? `已选 ${c.media_ids.length} 张参考` : "待提供参考图",c.media_ids?.length ? "ok":"warn")}${consistency.map(x=>badge(x,x==="三视图已确认"?"ok":x==="待三视图"?"warn":"")).join("")}</div>${role?assetCandidateStrip(e):""}<footer><small>${esc(c.naming_rule || `v${e.head}`)}</small>${role?btn("ComfyUI 生三视图","asset-comfyui",e.id)+btn("导入候选图","asset-candidate-upload",e.id):""}${btn("编辑 / 选图","edit-asset",e.id)}</footer></div>`;}).join("")}</div>`+
+    (!entities("asset").length ? empty(drama?"先锁主角，不必一次做全剧":"建立第一位角色",drama?"在剧本分镜中同步角色草案，再为主角生成三视图并导入确认。":"也可以在拆解与选角阶段生成资产，再导入成卡片。") : "");
+}
+function assetCandidates(id) {
+  return entities("attempt").filter(e=>{
+    const c=version(e).content;
+    return c.prompt_ref?.id===id && (c.medium || "image")==="image";
+  }).sort((a,b)=>a.id.localeCompare(b.id));
+}
+function assetCandidateStrip(asset) {
+  const list=assetCandidates(asset.id), current=S.project.selected_images[asset.id];
+  return list.length?`<details open><summary>候选三视图 · ${list.length}</summary><div class="candidate-strip">${list.map((e,i)=>{const c=version(e).content,m=S.project.media.find(m=>m.id===c.result_media?.[0]);return `<div class="candidate ${current?.id===e.id?"active":""}">${m?mediaCard(m,true):""}<p>${esc(`候选 V${i+1}`)}</p><div class="row">${btn("设为三视图","asset-candidate-current",e.id,"primary")}${btn("淘汰","asset-candidate-discard",e.id)}</div></div>`;}).join("")}</div></details>`:"";
 }
 function shotIssueNotice(e, issues) {
   const stale=issues.filter(x=>x.includes("已有不同的当前版本")), other=issues.filter(x=>!stale.includes(x));
@@ -256,7 +293,7 @@ function shotsView() {
   const list = episodeEntities("shot"), drama=S.project.project.track==="drama";
   const total = list.reduce((n,e) => n + Number(version(e).content.duration),0);
   return section(`${S.episode} · ${drama?"分镜出图队列":"镜头清单"}`,drama?`${list.length} 镜 / ${total} 秒。统一角色词后批量复制图片提示词，出图后把选中的图绑定为首帧。`:`${list.length} 镜 / 目标剪辑时长合计 ${total} 秒。提示词当前版本与当前实际结果分开记录。`,
-    (drama?btn("生成 / 优化出图词","stage","M02")+btn("复制全部图片词","copy-all-images"):"")+btn("＋ 添加镜头","edit-shot","","primary")) +
+    (drama?btn("生成 / 优化出图词","flow-step","3")+btn("复制全部图片词","copy-all-images"):"")+btn("＋ 添加镜头","edit-shot","","primary")) +
     list.map((e,i) => {
       const c = version(e).content, issues = S.project.checks[e.id] || [], take = S.project.selected[e.id];
       const firstFrame=!!c.bindings?.first_frame;
@@ -283,12 +320,13 @@ function recipesView() {
     `<div class="card table-wrap"><table><thead><tr><th>作品</th><th>观察窗口</th><th>播放</th><th>完播率</th><th>关联镜头</th><th></th></tr></thead><tbody>${entities("publication").map(e => {const c=version(e).content;return `<tr><td>${esc(e.title)}</td><td>${esc(c.window || "未填")}</td><td>${esc(c.views ?? "—")}</td><td>${c.completion == null ? "—" : esc(c.completion)+"%"}</td><td>${c.takes?.length || 0}</td><td>${btn("查看","edit-publication",e.id)}</td></tr>`;}).join("") || '<tr><td colspan="6">暂无作品记录。</td></tr>'}</tbody></table></div>`;
 }
 function templatesView() {
-  const codes=S.project.project.track==="drama"?["P00","M00","M01","M02","M03","Q01","Q02"]:
-    ["P00","B01",S.project.project.track==="dance"?"B03":"B02","D04","D05","D06","Q01","Q02"];
+  const codes=S.project.project.track==="drama"?["P00","M00","M01","M02","M03","D01","D02","D03","D04","D05","D06","Q01","Q02"]:
+    ["P00","B01","B02","B03","B04","D04","D05","D06","Q01","Q02"];
   const code=codes.includes(S.templateCode)?S.templateCode:"P00", e = entity("template-"+code);
   S.templateCode=code;
   return section("项目提示词模板","修改只影响本项目的后续生成。每次生成保存实际指令和模板版本。")+
     `<div class="card">${select("选择阶段","template-code",codes.map(k=>[k,`${k} · ${S.boot.templates[k].title}`]),code)}
+    <div class="notice ${accepted(e)?"warn":""}">${accepted(e)?`当前使用本项目自定义 v${e.accepted}，不会自动改用内置新版。载入内置模板后保存，才会更新后续生成。`:"当前使用内置 v0.4。保存后将成为本项目自定义版本。"}</div>
     ${area("模板正文","template-body",S.templateDraft ?? version(e)?.content.text ?? S.boot.templates[code].body,"占位符会引导模型读取本次上下文；所选来源与版本附在完整指令中。",16)}
     <div class="row">${btn("保存并设为当前版本","save-template","","primary")}${btn("载入内置模板","reset-template")}</div>${e ? history(e,"template-history") : ""}</div>`;
 }
@@ -326,17 +364,26 @@ function editor(kind, id = "", initial = {}, rev) {
   let body = field("名称","title",e?.title || initial.title || "", "text", "", "required maxlength=200");
   if (kind === "source") {
     body += select("素材类型","source_type",Object.entries(sourceKinds),c.source_type || "other");
-    body += field("来源位置","locator",c.locator || "", "text","例如：第 3 章 P1–P8 / 漫画第 2 页 / 视频 00:03–00:08");
-    body += area("原文 / 人工校对的画面描述","text",c.text || "", "长篇请分章节存档；仅选择本次需要的章节。",8)+field("来源 / 授权备注","rights",c.rights || "");
+    body += '<label class="field">原文起止范围</label>'+rangeFields("locator",c.locator || "")+'<small>漫画或视频可在任一格填写页格 / 时间码。</small>';
+    body += area("原文 / 人工校对的画面描述","text",c.text || "", "长篇可分段存档；仅选择本次需要的原文范围。",8)+field("来源 / 授权备注","rights",c.rights || "");
     body += '<label class="field">关联图片 / 视频（按勾选列表顺序）</label>'+mediaChecks("media_ids",c.media_ids || []);
     body += btn(c.source_type==="comic"?"导入漫画页":"导入关联素材","upload");
     body += check("此范围已由我校对","reviewed","yes",!!c.reviewed);
   } else if (kind === "asset") {
+    const dramaAsset=S.project.project.track==="drama", role=dramaAsset&&assetIsRole(c);
     body += S.space==="beauty"?'<input type="hidden" name="type" value="角色">':select("类型","type",["角色","造型","场景","道具"].map(v=>[v,v]),c.type || "角色");
-    body += area("稳定特征与可变状态","description",c.description || "")+area("参考图提示词","image_prompt",c.image_prompt || "");
+    body += area("稳定特征与可变状态","description",c.description || "");
+    if(dramaAsset) body += select("所属角色（仅造型填写）","parent_asset_id",[["","独立角色 / 场景 / 道具"],...entities("asset").filter(a=>a.id!==e?.id&&accepted(a)&&assetIsRole(accepted(a).content)).map(a=>[a.id,a.title])],c.parent_asset_id || "")+
+      area("形态与变化边界","form_description",c.form_description || "","例如：唐岚的螳螂本体，写清头胸腹、捕捉足、翅和甲壳；人形服装是否保留。",3);
+    body += area(role?"角色三视图提示词":"参考图提示词","image_prompt",c.image_prompt || "");
+    if(dramaAsset) body += `<div id="asset-role-fields"><div class="row">${btn("组合三视图提示词","asset-three-view")}</div>${check("我已确认参考图包含同一人物正面、侧面、背面三视图","three_view_confirmed","yes",!!c.three_view_confirmed)}</div>`;
     if(S.project.project.track==="drama") body += `<details><summary>可选：ComfyUI 与命名参数</summary><div class="form-grid">${field("LoRA 触发词","lora_trigger",c.lora_trigger || "","text","没有训练就留空")}${field("LoRA 建议权重","lora_weight",c.lora_weight || "","text","只记录实际验证值")}${field("统一素材命名","naming_rule",c.naming_rule || "","text","例如 PROJECT_CHAR_LOOK_v01")}</div>${area("IP-Adapter 参考与用法","ip_adapter_notes",c.ip_adapter_notes || "","没有实际参考图时留空，不能写成已验证。",3)}</details>`;
-    body += '<label class="field">选定参考图</label>'+mediaChecks("media_ids",c.media_ids || [],"image/");
-    body += btn("导入参考图","upload");
+    body += `<label class="field" id="asset-media-label">${role?"三视图结果图":"选定参考图"}</label>`+mediaChecks("media_ids",c.media_ids || [],"image/");
+    body += btn(role?"导入三视图结果":"导入参考图","upload");
+    if(dramaAsset) body += '<details><summary>单人生产参考（可选）</summary><p>选清晰的单视角供剧情镜头使用；三视图保留作设定对照。需要裁图时请先裁好再导入。</p>'+
+      btn("导入单视角参考","upload","production_media_ids")+
+      mediaChecks("production_media_ids",c.production_reference?.media_ids || [],"image/")+
+      area("参考用途与角度","production_notes",c.production_reference?.notes || "","例如：正面全身，身份和服装；不沿用背景和拼板。",2)+"</details>";
   } else if (kind === "profile") {
     body += `<div class="form-grid">${select("工作流路线","mode",[["unknown","未知 / 通用草稿"],["i2v","普通 I2V"],["first_last","首尾帧"],["animate","初代 Wan-Animate"],["animate2","Wan-Animate-2"]],c.mode || "unknown")}${field("模型 / LoRA / 工作流版本","checkpoint",c.checkpoint || "")}${select("提示词语言","language",[["zh","中文"],["en","English"]],c.language || "zh")}${select("负面提示词能力","negative_prompt",[["","未知"],["true","支持"],["false","不支持"]],c.capabilities?.negative_prompt == null ? "" : String(c.capabilities.negative_prompt))}</div>`;
     body += area("输入槽位（JSON 列表）","slots",JSON.stringify(c.slots || [],null,2),'槽位名用于挂图，例如 [{"name":"first_frame","type":"image","required":true}]；视频用 video。切换路线可填入最小槽位。',5);
@@ -344,13 +391,19 @@ function editor(kind, id = "", initial = {}, rev) {
     body += check("我已在 ComfyUI 实测并确认上述能力","verified","yes",c.verification === "verified");
   } else if (kind === "shot") {
     const profileRef = v?.deps.find(d => entity(d.id)?.kind === "profile");
-    const assetRefs = (v?.deps || []).filter(d => entity(d.id)?.kind === "asset").map(d=>d.id);
+    const assetRefs = c.asset_ids || (v?.deps || []).filter(d => entity(d.id)?.kind === "asset").map(d=>d.id);
     body += `<div class="form-grid">${field("镜号（创建后固定）","key",e?.id || initial.key || `${S.episode}-S${String(episodeEntities("shot").length+1).padStart(3,"0")}`,"text","",e?"readonly":"required pattern=[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}")}${field("目标剪辑时长 / 秒","duration",c.duration || 5,"number","","required min=0.1 max=600 step=0.1")}${field("章节 / 场次 / 时间码","source",c.source || "")}${field("景别 / 机位 / 运镜","camera",c.camera || "")}</div>`;
     body += field("起始状态","start",c.start || "")+field("主要动作","action",c.action || "")+field("结束状态","end",c.end || "");
+    body += field("镜头顺序（从 0 开始）","order",c.order ?? 0,"number","","min=0 step=1")+
+      area("对白 / 内心 / 旁白（保留说话人）","dialogue",c.dialogue || "", "",3)+
+      area("站位与构图","composition",c.composition || "","人物左右、视线、前中后景。",2)+
+      field("光源与方向","lighting",c.lighting || "")+
+      area("连续性与本镜边界","continuity",c.continuity || "","进入/离开状态，以及下一镜才发生的事。",2);
     body += field("生成平台 / 模型（可选）","platform",c.platform || "","text","记录实际使用的平台和模型名称");
     body += `<details ${profileRef?"open":""}><summary>可选：ComfyUI 工作流</summary>`+select("工作流档案（引用当前版本）","profile",[["","公开平台 / 不绑定"],...entities("profile").filter(accepted).map(e=>[e.id,`${e.title} · v${e.accepted}`])],profileRef?.id || "")+"</details>";
     body += '<div id="shot-profile-fields"></div><label class="field">关联资产（使用当前版本）</label><div class="checks">'+entities("asset").filter(accepted).map(a=>check(`${a.title} · v${a.accepted}`,"assets",a.id,assetRefs.includes(a.id))).join("")+'</div>';
     body += area("首帧图片提示词","image_prompt",c.image_prompt || "", "主体 + 静态动作 + 场景 + 构图 + 光线画风。",5);
+    body += area("参考素材用途","reference_notes",c.reference_notes || "","分别说明身份、具体形态/服装、空间参考，避免照搬设定板排版。",3);
     if(S.project.project.track==="drama") body += '<details><summary>可选：ControlNet 建议</summary>'+area("ControlNet 姿态 / 构图建议","controlnet",c.controlnet || "","不需要时留空。",3)+"</details>";
     body += area("视频提示词","video_prompt",c.video_prompt || "", "一镜一个主要动作；挂图说明和参数放在相邻字段。",6);
     body += `<div id="negative-field">${area("负面提示词","negative_prompt",c.negative_prompt || "")}</div>`+area("后期 / 挂图补充说明","edit_notes",c.edit_notes || "");
@@ -381,7 +434,17 @@ function editor(kind, id = "", initial = {}, rev) {
   modal(e ? `编辑${{source:"来源",asset:"资产",profile:"档案",shot:"镜头",attempt:"试片",recipe:"配方",publication:"作品"}[kind]} · v${v.revision}` : "新增"+({source:"来源",asset:"资产",profile:"工作流档案",shot:"镜头",attempt:"试片",recipe:"配方",publication:"作品"}[kind]),
     body,btn("取消","close")+'<button type="submit" name="intent" value="draft">保存草稿</button><button type="submit" name="intent" value="current" class="primary">保存并设为当前版本</button>'+(e&&e.head!==e.accepted ? btn("设为当前版本","accept-record",e.id):""),"record-form");
   if (kind === "shot") updateShotProfile(c);
+  if (kind === "asset" && S.project.project.track==="drama") updateAssetType();
   if (kind === "attempt") updateAttemptRevisions(c.prompt_ref?.revision);
+}
+function updateAssetType() {
+  const form=$("#record-form"), type=$('[name="type"]',form).value, role=type==="角色";
+  $("#asset-role-fields").hidden=!role;
+  $('[name="three_view_confirmed"]',form).disabled=!role;
+  $('[name="parent_asset_id"]',form).disabled=type!=="造型";
+  $('[name="image_prompt"]',form).closest("label").firstChild.textContent=role?"角色三视图提示词":"参考图提示词";
+  $("#asset-media-label").textContent=role?"三视图结果图":"选定参考图";
+  $('[data-action="upload"]',form).textContent=role?"导入三视图结果":"导入参考图";
 }
 function updateShotProfile(c = S.edit?.v?.content || {}) {
   const profile = accepted(entity($('#record-form [name=profile]').value))?.content;
@@ -400,12 +463,21 @@ async function saveRecord(form, setCurrent = false) {
   const f = new FormData(form), data = Object.fromEntries(f), {kind,e,v} = S.edit;
   let c={}, deps=v?.deps || [], id=e?.id, episode=e?.episode || "";
   const get = name => data[name] || "";
-  if (kind === "source") c={source_type:get("source_type"),text:get("text"),locator:get("locator"),rights:get("rights"),reviewed:f.has("reviewed"),media_ids:f.getAll("media_ids")};
-  if (kind === "asset") c={...v?.content,type:get("type"),description:get("description"),image_prompt:get("image_prompt"),lora_trigger:get("lora_trigger"),lora_weight:get("lora_weight"),ip_adapter_notes:get("ip_adapter_notes"),naming_rule:get("naming_rule"),media_ids:f.getAll("media_ids")};
+  if (kind === "source") c={source_type:get("source_type"),text:get("text"),locator:rangeFormValue(f,"locator"),rights:get("rights"),reviewed:f.has("reviewed"),media_ids:f.getAll("media_ids")};
+  if (kind === "asset") {
+    c={...v?.content,type:get("type"),description:get("description"),image_prompt:get("image_prompt"),lora_trigger:get("lora_trigger"),lora_weight:get("lora_weight"),ip_adapter_notes:get("ip_adapter_notes"),naming_rule:get("naming_rule"),media_ids:f.getAll("media_ids")};
+    if(form.querySelector('[name="three_view_confirmed"]'))c.three_view_confirmed=f.has("three_view_confirmed");
+    if(form.querySelector('[name="parent_asset_id"]')){
+      c.parent_asset_id=c.type==="造型"?get("parent_asset_id"):"";c.form_description=get("form_description");
+      c.production_reference={media_ids:f.getAll("production_media_ids"),notes:get("production_notes")};
+      deps=deps.filter(d=>d.id!==v?.content.parent_asset_id);
+    }
+  }
   if (kind === "profile") c={mode:get("mode"),checkpoint:get("checkpoint"),language:get("language"),settings:get("settings"),slots:JSON.parse(get("slots") || "[]"),verification:f.has("verified")?"verified":"unverified",capabilities:{negative_prompt:get("negative_prompt")===""?null:get("negative_prompt")==="true"}};
   if (kind === "shot") {
     id = get("key"); episode = e?.episode || S.episode;
     c={...v?.content,platform:get("platform"),duration:Number(get("duration")),source:get("source"),camera:get("camera"),start:get("start"),action:get("action"),end:get("end"),image_prompt:get("image_prompt"),controlnet:get("controlnet"),video_prompt:get("video_prompt"),edit_notes:get("edit_notes"),bindings:{}};
+    Object.assign(c,{order:Number(get("order")),dialogue:get("dialogue"),composition:get("composition"),lighting:get("lighting"),continuity:get("continuity"),reference_notes:get("reference_notes"),asset_ids:f.getAll("assets")});
     for (const [name,value] of f) if (name.startsWith("binding:") && value) c.bindings[name.slice(8)]=value;
     const profile = entity(get("profile"));
     if (accepted(profile)?.content.capabilities?.negative_prompt === true) c.negative_prompt=get("negative_prompt");
@@ -428,8 +500,9 @@ async function saveRecord(form, setCurrent = false) {
 }
 function parseResult(text) {
   let cleaned=text.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
-  if (cleaned.startsWith("{")) {
-    const obj=JSON.parse(cleaned);
+  const json=firstJsonObject(cleaned);
+  if (json) {
+    const obj=JSON.parse(json);
     if (typeof obj.text!=="string") throw new Error("JSON 结果需要 text 字段");
     for (const key of ["shots","assets"]) if (obj[key]!==undefined && !Array.isArray(obj[key])) throw new Error(key+" 应为数组");
     return {text:obj.text,structured:obj};
@@ -437,10 +510,29 @@ function parseResult(text) {
   if (!cleaned) throw new Error("请先填写阶段结果");
   return {text};
 }
+function firstJsonObject(text) {
+  const cleaned=String(text || "").trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"");
+  const start=cleaned.indexOf("{");
+  if(start<0)return "";
+  let depth=0,quote=false,escape=false;
+  for(let i=start;i<cleaned.length;i++){
+    const ch=cleaned[i];
+    if(quote){
+      if(escape){escape=false;continue;}
+      if(ch==="\\"){escape=true;continue;}
+      if(ch==="\"")quote=false;
+      continue;
+    }
+    if(ch==="\"")quote=true;
+    else if(ch==="{")depth++;
+    else if(ch==="}"&&--depth===0)return cleaned.slice(start,i+1);
+  }
+  return cleaned.startsWith("{")?cleaned:"";
+}
 async function saveStage(shouldAccept = false) {
   const e=stageEntity(), c=parseResult($("#stage-output").value);
   const f=new FormData($("#context-form"));
-  const input={stage:S.stage,episode:S.episode,scope:f.get("scope"),extra:f.get("extra"),source_ids:f.getAll("source_ids"),context_ids:f.getAll("context_ids"),media_ids:f.getAll("media_ids")};
+  const input={stage:S.stage,episode:S.episode,scope:rangeFormValue(f,"scope"),extra:f.get("extra"),source_ids:f.getAll("source_ids"),context_ids:f.getAll("context_ids"),media_ids:f.getAll("media_ids")};
   const built=S.preview?.deps?S.preview:{...await projectAPI("compose",input),input};
   await projectAPI("save",{id:`stage-${S.stage}-${S.episode}`,kind:"stage",title:S.boot.stages.find(s=>s[0]===S.stage)[1],episode:S.episode,
     base_revision:e?.head || 0,content:c,deps:built?.deps || version(e)?.deps || [],meta:{input:built?.input || version(e)?.meta?.input,preview:built},set_current:shouldAccept,expected_accepted:e?.accepted??null});
@@ -453,56 +545,31 @@ async function acceptRecord(e) {
 }
 async function composePreview() {
   const f=new FormData($("#context-form"));
-  const input={stage:S.stage,episode:S.episode,scope:f.get("scope"),extra:f.get("extra"),
+  const input={stage:S.stage,episode:S.episode,scope:rangeFormValue(f,"scope"),extra:f.get("extra"),
     source_ids:f.getAll("source_ids"),context_ids:f.getAll("context_ids"),media_ids:f.getAll("media_ids")};
   const built=await projectAPI("compose",input);
   S.preview={...built,input};
-  modal("本次发送内容",`<div class="notice">发送 ${built.characters.toLocaleString()} 字符，${built.media_ids.length} 张图片。${built.deps.some(d=>d.frozen)?"本阶段旧结果及其下游作为固定的历史参考，避免新结果依赖自身。":""}文本会发往设置中的模型服务；视频仅按选定关键帧分析。无 API 时可复制这份指令到外部对话工具。</div>${area("完整流程指令","composed",built.prompt,"",16)}`,
+  modal("本次发送内容",`<div class="notice">发送 ${built.characters.toLocaleString()} 字符，${built.media_ids.length} 张图片。${built.batches?`共 ${built.batches.length} 批，每批最多 6 镜；下方包含每批实际指令。复制到外部工具时请逐批发送。`:""}每次输出上限 ${built.max_tokens} tokens。${built.deps.some(d=>d.frozen)?"本阶段旧结果及其下游作为固定的历史参考，避免新结果依赖自身。":""}文本会发往设置中的模型服务；视频仅按选定关键帧分析。</div>${templateNotice(built)}${area("完整流程指令","composed",built.prompt,"",16)}`,
     btn("复制指令","copy-composed")+btn("下载指令","download-composed")+btn("发送给模型生成","generate","","primary"));
+}
+function templateNotice(built) {
+  const items=built.template_sources || [];
+  return `<div class="notice ${items.some(t=>t.source==="custom")?"warn":""}">模板来源：${esc(items.map(t=>`${t.code} · ${t.source==="custom"?"项目自定义":"内置"} v${t.version}`).join("；"))}${items.some(t=>t.source==="custom")?"。自定义模板仍然生效，可在项目模板中载入内置新版并保存。":""}</div>`;
 }
 async function importStructured() {
   if (S.dirty) throw new Error("请先保存当前阶段并设为当前版本");
   const e=stageEntity(), v=accepted(e);
   if (!v || e.accepted!==e.head) throw new Error("请先将当前阶段设为当前版本");
-  const obj=v.content.structured;
-  if (!obj || (!obj.shots?.length && !obj.assets?.length)) throw new Error("需要包含 shots 或 assets 数组的结构化 JSON；可在流程指令中查看格式");
-  const rows=[...(obj.assets || []).map(c=>({kind:"asset",c})),...(obj.shots || []).map(c=>({kind:"shot",c}))];
-  if (rows.length>200) throw new Error("单次最多导入 200 个镜头或资产，请分批");
-  const keys=new Set();
-  for (const {kind,c} of rows) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(c.key || "")) throw new Error("每项需要稳定的英文 / 数字 key，例如 EP001-S001");
-    if (keys.has(c.key)) throw new Error("同一次导入的 key 不得重复："+c.key);
-    keys.add(c.key);
-    const old=entity(c.key);
-    if (old && old.kind!==kind) throw new Error("ID 与不同类型记录冲突："+c.key);
-    if (kind==="shot" && !(typeof c.duration==="number" && c.duration>0 && c.duration<=600)) throw new Error(c.key+" 缺少有效镜长");
-    if (Object.values(c.bindings || {}).some(Boolean) || c.media_ids?.length) throw new Error("请移除 AI 填写的素材 ID，导入后由你选择实际文件");
-  }
-  if (!confirm(`将导入 ${rows.length} 条镜头 / 资产；已有同 ID 记录会新增草稿版本。继续？`)) return;
-  let count=0;
-  try {
-    for (const {kind,c} of rows) {
-      const old=entity(c.key);
-      const content={...version(old)?.content,...c};
-      if(old){
-        if(kind==="shot")content.bindings=version(old).content.bindings || {};
-        if(kind==="asset")content.media_ids=version(old).content.media_ids || [];
-      }
-      const saved=await projectAPI("save",{id:c.key,kind,title:c.title || c.key,episode:kind==="shot"?S.episode:"",base_revision:old?.head || 0,
-        content,deps:[ref(e,v),...v.deps.filter(d=>["profile","asset"].includes(entity(d.id)?.kind))]});
-      if(S.stage.startsWith("M"))await projectAPI("accept",{id:saved.id,revision:saved.revision,expected_accepted:old?.accepted??null});
-      count++;
-    }
-  } finally {
-    await refresh();
-    const next={M01:"assets",M02:"shots",M03:"attempts"}[S.stage];
-    if(next){S.page=next;render();}
-    toast(S.stage.startsWith("M")?`已同步并设定 ${count} 条当前镜头 / 资产`:`已保存 ${count} / ${rows.length} 条草稿；到镜头 / 资产页面校对并设为当前版本`);
-  }
+  const result=await projectAPI("sync-stage",ref(e,v));
+  await refresh();toast(`已同步 ${result.count} 个镜头 / 资产，真实素材绑定已保留`);
 }
 function settingsDialog() {
   const c=S.boot.settings;
-  modal("模型连接设置",`<div class="notice">支持 OpenAI 兼容的 Chat Completions API，也可连接本机模型。API Key 保存在本机用户目录，不进入工程备份。视觉模型需明确支持图片输入。</div>${field("API Base URL","base_url",c.base_url || "https://api.openai.com/v1","url","填写到 /v1，不包含 /chat/completions","required")}${field("文本模型名称","model",c.model || "","text","","required")}${field("视觉模型名称（可选）","vision_model",c.vision_model || "")}${field(c.has_key?"API Key（已保存；留空保持）":"API Key（本机免鉴权模型可留空）","api_key","","password","密钥仅发送给你填写的 API 地址","autocomplete=off")}${check("清除已保存密钥","clear_key","yes")}`,
+  modal("模型连接设置",`<div class="notice">支持 OpenAI 兼容的 Chat Completions API，也可连接本机模型。API Key 保存在本机用户目录，不进入工程备份。视觉模型需明确支持图片输入。</div>${field("API Base URL","base_url",c.base_url || "https://api.openai.com/v1","url","填写到 /v1，不包含 /chat/completions","required")}${field("文本模型名称","model",c.model || "","text","","required")}${field("视觉模型名称（可选）","vision_model",c.vision_model || "")}${field(c.has_key?"API Key（已保存；留空保持）":"API Key（本机免鉴权模型可留空）","api_key","","password","密钥仅发送给你填写的 API 地址","autocomplete=off")}${check("清除已保存密钥","clear_key","yes")}
+    ${field("每次输出上限 / tokens","max_tokens",c.max_tokens || 8192,"number","默认 8192；按服务支持上限调整。多镜图片词、视频词自动每 6 镜一批。","min=1024 max=65536 step=1 required")}
+    <details><summary>ComfyUI 生图</summary>${field("ComfyUI API 地址","comfyui_url",c.comfyui_url || "http://127.0.0.1:8188","url","填写到服务根地址，不包含 /prompt")}
+      ${field("正向提示词节点 ID（可选）","comfyui_prompt_node",c.comfyui_prompt_node || "","text","留空时自动寻找第一个 text 节点")}
+      ${area("图片 Workflow API JSON","comfyui_workflow",c.comfyui_workflow || "","从 ComfyUI 导出 API Format JSON；系统只替换正向提示词。",8)}</details>`,
     btn("取消","close")+'<button type="submit" class="primary">保存连接</button>',"settings-form");
 }
 async function uploadFile(file, projectId=S.project.project.id) {
@@ -534,6 +601,32 @@ async function captureFrame() {
   const file=await uploadFile(new File([blob],`frame-${time}s.jpg`,{type:"image/jpeg"}));
   const saved=await projectAPI("save",{kind:"source",title:`${original.name} · ${time}s`,content:{source_type:"other",locator:`${original.name} / ${time} 秒`,text:"浏览器手工抽取单帧。画面内容待人工校对；不代表已分析连续动作和音轨。",media_ids:[file.id,original.id],reviewed:false,rights:""}});
   closeModal(true);await refresh();editor("source",saved.id);toast("关键帧已保存，请校对来源描述");
+}
+function acceptedRoleAsset(id) {
+  const e=entity(id),v=accepted(e);
+  if(!e||!v||e.accepted!==e.head)throw new Error("请先保存角色资产并设为当前版本");
+  if(!assetIsRole(v.content))throw new Error("只有角色资产需要三视图");
+  if(!v.content.image_prompt?.trim())throw new Error("请先填写角色三视图提示词");
+  return [e,v];
+}
+async function importAssetCandidateFiles(id, files) {
+  const [e,v]=acceptedRoleAsset(id);
+  if(!files.length)return;
+  const added=[];
+  for(const file of files){
+    if(!file.type.startsWith("image/"))throw new Error("三视图候选只支持图片："+file.name);
+    toast(`正在导入候选 ${added.length+1}/${files.length}：${file.name}`);
+    added.push(await uploadFile(file));
+  }
+  await projectAPI("batch-attempts",{rows:added.map(m=>({media_id:m.id,medium:"image",prompt_ref:ref(e,v),actual_prompt:v.content.image_prompt,platform:"手动导入 / ComfyUI"}))});
+  S.assetCandidate="";await refresh();toast(`已加入 ${added.length} 张候选三视图`);
+}
+async function acceptAssetCandidate(id) {
+  const take=entity(id),tv=version(take),asset=entity(tv.content.prompt_ref.id),av=accepted(asset);
+  if(!asset||!av||asset.accepted!==asset.head)throw new Error("请先处理角色资产草稿，再设定三视图候选");
+  const reviewed=await projectAPI("review",{id,revision:take.head,judgment:"accepted",expected:S.project.selected_images[asset.id] || null});
+  await projectAPI("save",{id:asset.id,kind:"asset",title:asset.title,base_revision:asset.head,content:{...av.content,media_ids:reviewed.content.result_media,three_view_confirmed:true},deps:[...av.deps,{id:take.id,revision:reviewed.revision,frozen:true}],set_current:true,expected_accepted:asset.accepted});
+  await refresh();toast("已设为当前角色三视图");
 }
 const actions = {
   "switch-space":async space=>{
@@ -569,10 +662,30 @@ const actions = {
   "goto-page":id=>navigate(id),
   "goto-stages":()=>navigate("stages"),
   "goto-sources":()=>navigate("sources"),
-  "upload":()=>$("#upload-input").click(),
+  "upload":target=>{S.uploadTarget=target;$("#upload-input").click();},
   "import-text":()=>$("#text-input").click(),
   "edit-source":id=>editor("source",id),
   "edit-asset":id=>editor("asset",id),
+  "asset-three-view":()=>{
+    const title=$('#record-form [name="title"]').value.trim() || "角色";
+    const type=$('#record-form [name="type"]')?.value || "角色";
+    if(type!=="角色")throw new Error("只有角色资产需要三视图");
+    $('#record-form [name="image_prompt"]').value=dramaThreeViewPrompt(title,$('#record-form [name="description"]').value.trim());
+    S.modalDirty=true;toast("三视图提示词已组合");
+  },
+  "asset-comfyui":async id=>{
+    const [e,v]=acceptedRoleAsset(id);
+    toast("正在提交 ComfyUI 生成三视图…");
+    const result=await projectAPI("comfyui-image",{prompt_ref:ref(e,v)});
+    await refresh();toast(`已生成 ${result.count} 张候选三视图，请筛选确认`);
+  },
+  "asset-candidate-upload":id=>{acceptedRoleAsset(id);S.assetCandidate=id;$("#upload-input").click();},
+  "asset-candidate-current":acceptAssetCandidate,
+  "asset-candidate-discard":async id=>{
+    const take=entity(id),c=version(take).content;
+    await projectAPI("review",{id,revision:take.head,judgment:"discarded",expected:S.project.selected_images[c.prompt_ref.id] || null});
+    await refresh();toast("候选三视图已淘汰");
+  },
   "edit-shot":id=>editor("shot",id),
   "edit-profile":id=>editor("profile",id),
   "edit-attempt":id=>editor("attempt",id),
@@ -596,7 +709,7 @@ const actions = {
       return;
     }
     S.preview=preview;
-    S.stageDraft=res.error ? {text:res.run.content.text} : {text:res.result.text,structured:res.result};
+    S.stageDraft=res.error ? {text:res.run.content.text} : S.stage==="M00" ? {text:res.result.text} : {text:res.result.text,structured:res.result};
     S.dirty=true;closeModal(true);await refresh();
     toast(res.error || "生成草稿已载入；检查后保存并设为当前版本",!!res.error);
   },
@@ -640,13 +753,13 @@ const actions = {
   },
   "open-run":id=>{
     const e=entity(id),v=version(e);S.openRun=id;
-    modal("模型生成记录",`<div class="notice ${v.content.error?"warn":""}">${esc(v.content.error || "生成成功，尚需人工检查并设为当前版本。")}</div><pre>${esc(v.content.text || "服务没有返回可保存的文本。")}</pre><details><summary>实际指令与输入快照</summary><pre>${esc(v.meta.prompt)}</pre></details>`,btn("载入编辑器","load-run"));
+    modal("模型生成记录",`<div class="notice ${v.content.error?"warn":""}">${esc(v.content.error || "生成成功，尚需人工检查并设为当前版本。")}</div>${(v.content.batch_runs || []).map((r,i)=>btn(`查看第 ${i+1} 批原始记录`,"open-run",r.id)).join("")}<pre>${esc(v.content.text || "服务没有返回可保存的文本。")}</pre><details><summary>实际指令与输入快照</summary><pre>${esc(v.meta.prompt || "逐批实际指令保存在上方各批记录内。")}</pre></details>`,btn("载入编辑器","load-run"));
   },
   "load-run":()=>{
     if(!canLeave())return;
     const v=version(entity(S.openRun));
-    S.stageDraft=v.content.status==="ok"?{text:v.content.result.text,structured:v.content.result}:{text:v.content.text};
-    S.preview={deps:v.deps,prompt:v.meta.prompt,media_ids:v.meta.media_ids,hash:v.meta.input_hash};
+    S.stageDraft=v.content.status==="ok"?(S.stage==="M00"?{text:v.content.result.text}:{text:v.content.result.text,structured:v.content.result}):{text:v.content.text};
+    S.preview={deps:v.deps,prompt:v.meta.prompt,media_ids:v.meta.media_ids,hash:v.meta.input_hash,shot_keys:v.meta.shot_keys};
     S.dirty=true;closeModal(true);render();
   },
   "save-template":async()=>{
@@ -693,6 +806,7 @@ document.addEventListener("change",async event=>{
     if(el.id==="project-select"){if(canLeave()){S.dirty=false;S.stageDraft=null;S.preview=null;await boot(el.value);}else el.value=S.project.project.id;}
     if(el.id==="episode"){if(canLeave()){S.episode=el.value.trim() || "EP001";localStorage.setItem("studio.episode",S.episode);S.dirty=false;S.preview=null;S.stageDraft=null;productionReset();await productionLoad();render();}else el.value=S.episode;}
     if(el.closest("#record-form")&&el.name==="profile")updateShotProfile();
+    if(el.closest("#record-form")&&el.name==="type"&&$("#asset-role-fields"))updateAssetType();
     if(el.closest("#record-form")&&el.name==="shot"){
       updateAttemptRevisions();
       $('#record-form [name=actual_prompt]').value=version(entity(el.value),Number($('#record-form [name=prompt_revision]').value)).content.video_prompt || "";
@@ -706,23 +820,25 @@ document.addEventListener("change",async event=>{
     if(el.name==="template-code"){if(canLeave()){S.templateCode=el.value;S.templateDraft=undefined;S.dirty=false;render();}else el.value=S.templateCode||"P00";}
     if(el.id==="text-input"&&el.files[0]){
       const file=el.files[0];if(file.size>1024*1024)throw new Error("请将长篇拆成小于 1 MB 的章节文件");
-      editor("source","",{source_type:"novel",title:file.name,text:await file.text(),locator:file.name});el.value="";
+      editor("source","",{source_type:"novel",title:file.name,text:await file.text(),locator:""});el.value="";
     }
     if(el.id==="upload-input"&&el.files.length){
       const files=[...el.files];let done=0;
+      if(S.assetCandidate){const target=S.assetCandidate;S.assetCandidate="";await importAssetCandidateFiles(target,files);el.value="";return;}
       for(const file of files){toast(`正在导入 ${++done} / ${files.length}：${file.name}`);await uploadFile(file);}
       el.value="";
       // Keep an open take form intact; append new media choices without discarding edits.
       const oldIds=new Set(S.project.media.map(m=>m.id));
       S.project=await api("/api/projects/"+S.project.project.id);
       if($("#modal").open && $("#record-form")){
-        const names=["media_ids","input_media","result_media"];
+        const names=["media_ids","input_media","result_media","production_media_ids"];
         const imageOnly=S.edit?.kind==="asset" || S.edit?.kind==="source"&&$('#record-form [name="source_type"]')?.value==="comic";
         for(const name of names){
           const group=$(`#record-form [data-media-group=${name}]`);
-          if(group)for(const m of S.project.media.filter(m=>!oldIds.has(m.id) && (!imageOnly || m.mime.startsWith("image/"))))group.insertAdjacentHTML("beforeend",check(m.name,name,m.id,name==="result_media" || ["asset","source"].includes(S.edit?.kind)));
+          if(group)for(const m of S.project.media.filter(m=>!oldIds.has(m.id) && (!imageOnly || m.mime.startsWith("image/"))))group.insertAdjacentHTML("beforeend",check(m.name,name,m.id,S.uploadTarget?name===S.uploadTarget:name!=="production_media_ids"&&(name==="result_media" || ["asset","source"].includes(S.edit?.kind))));
         }
       }else render();
+      S.uploadTarget="";
       toast("素材已导入");
     }
     if(el.id==="restore-input"&&el.files[0]){

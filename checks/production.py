@@ -40,6 +40,11 @@ def main():
             for c in range(4):
                 image = store.add_media(pid, f"{shot['id']}-v1-take{c}.png", io.BytesIO(b"test-image"), 10)
                 rows.append({"media_id": image["id"], "prompt_ref": ref(shot), "medium": "image"})
+        status = production_status(store.snapshot(pid), "EP001")
+        assert any(i["step"] == 2 and "角色资产" in i["message"] for i in status["issues"])
+        save("CHAR-MAIN", "asset", {"type": "角色", "description": "黑发主角", "image_prompt": "角色三视图",
+                                    "media_ids": [rows[0]["media_id"]], "three_view_confirmed": True})
+        assert production_status(store.snapshot(pid), "EP001")["stages"][2]["ready"]
         start = time.monotonic()
         batch = store.batch_attempts(pid, {"rows": rows})
         assert batch["count"] == 120
@@ -54,12 +59,12 @@ def main():
             shots[n] = save(shot["id"], "shot", dict(shot["content"], bindings={"first_frame": rows[n*4]["media_id"]},
                                                    video_source=ref(selected)),
                             [ref(script), dict(ref(selected), frozen=True)], 1)
-        assert production_status(store.snapshot(pid), "EP001")["stages"][2]["ready"]
+        assert production_status(store.snapshot(pid), "EP001")["stages"][3]["ready"]
         for shot in shots:
             video = store.add_media(pid, shot["id"]+".mp4", io.BytesIO(b"test-video"), 10)
             take = store.batch_attempts(pid, {"rows": [{"media_id": video["id"], "prompt_ref": ref(shot), "medium": "video"}]})["items"][0]["id"]
             store.review_attempt(pid, {"id": take, "revision": 1, "judgment": "accepted", "expected": None})
-        assert production_status(store.snapshot(pid), "EP001")["stages"][3]["ready"]
+        assert production_status(store.snapshot(pid), "EP001")["stages"][4]["ready"]
         assert not production_status(store.snapshot(pid), "EP001")["ready"]
         for shot in shots:
             save("voice-"+shot["id"], "voice", {"shot_ref": ref(shot), "no_voice": True, "media_ids": [], "lines": []}, [ref(shot)])
@@ -114,7 +119,8 @@ def main():
         store.purge_trash({"id": trash["id"], "confirmation": disposable["name"]})
         assert not (Path(tmp)/disposable["id"]).exists()
         print("PASS recoverable deletion, retained media, trash backup and explicit purge")
-        character = save("CHAR", "asset", {"type": "角色", "description": "黑发", "media_ids": [rows[0]["media_id"]]})
+        character = save("CHAR", "asset", {"type": "角色", "description": "黑发", "image_prompt": "角色三视图",
+                                           "media_ids": [rows[0]["media_id"]], "three_view_confirmed": True})
         dest = store.create({"name": "跨项目复用", "track": "beauty"})
         cloned = store.import_library(dest["id"], {"project": pid, **ref(character)})
         assert cloned["content"]["media_ids"] != character["content"]["media_ids"]
